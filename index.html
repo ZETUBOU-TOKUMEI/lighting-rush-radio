@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>雷霆冲刺 — OTOMAD RADIO</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap');
+:root{--paper:#f4f3ef;--ink:#222321;--muted:#898983;--line:#c9c8c1;--serif:"Noto Serif SC","Songti SC",serif;--mono:"DM Mono",monospace}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--serif);font-weight:300}a{color:inherit;text-decoration:none}button,input,textarea{font:inherit}
+.top{height:66px;padding:0 5.4vw;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);font:10px var(--mono);letter-spacing:.11em}.brand{font:11px var(--serif);letter-spacing:.22em}.nav{display:flex;gap:32px;color:#696963}.nav a{padding:8px 0}.nav a:hover{color:#111}
+main{max-width:1280px;margin:auto;padding:0 5.4vw}.eyebrow,.label,.micro{font:10px var(--mono);letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.hero{min-height:690px;display:grid;grid-template-columns:1fr 1fr;align-items:center;position:relative;padding:70px 0 94px}.hero-copy{padding-left:7%;z-index:1}.hero h1{font-size:clamp(46px,7.4vw,102px);font-weight:300;line-height:1.3;letter-spacing:.1em;margin:31px 0 16px}.subtitle{font:11px var(--mono);letter-spacing:.15em;color:#777}.hero-note{margin-top:84px;width:250px;font-size:13px;line-height:2.1;color:#65655f}.hero-art{height:490px;position:relative;background:#e8e7e1;margin-left:6%;overflow:hidden}.moon{position:absolute;width:min(28vw,320px);aspect-ratio:1;border-radius:50%;background:#f5f4ef;right:14%;top:15%;box-shadow:0 0 0 1px #d8d7d0}.orbit{position:absolute;border:1px solid #b9b9b2;width:120%;height:44%;border-radius:50%;left:-10%;top:42%;transform:rotate(-24deg)}.horizon{position:absolute;bottom:21%;left:0;right:0;border-top:1px solid #bab9b2}.art-caption{position:absolute;bottom:22px;left:22px;font:9px var(--mono);letter-spacing:.1em;color:#777}.vertical{position:absolute;right:17px;top:22px;writing-mode:vertical-rl;font:9px var(--mono);letter-spacing:.22em;color:#777}
+.issue{border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1.2fr;gap:8%;padding:70px 7% 100px}.issue h2{font-size:29px;font-weight:300;letter-spacing:.1em;margin:0 0 15px}.issue-copy{max-width:450px;font-size:14px;line-height:2.2;color:#62625c}.meta{display:flex;gap:30px;margin-top:30px;font:9px var(--mono);letter-spacing:.12em;color:#888}
+.section-head{border-top:1px solid var(--line);padding:25px 0;display:flex;justify-content:space-between}
+.about-grid{display:grid;grid-template-columns:1fr 1fr;gap:13%;padding:36px 9% 130px}.about-title{font-size:clamp(38px,5vw,66px);font-weight:300;line-height:1.6;letter-spacing:.12em;margin:0}.about-body{padding-top:70px;font-size:13px;line-height:2.4;color:#66665f}.about-body p{margin:0 0 25px}.signature{font:10px var(--mono);letter-spacing:.12em;margin-top:50px;color:#999}
+.letter-wrap{border-top:1px solid var(--line);padding:26px 0 120px}.letter-head{display:flex;justify-content:space-between;margin:8px 0 60px}.letter-layout{display:grid;grid-template-columns:.75fr 1.25fr;gap:12%;padding:0 9%}.letter-intro h2{font-size:40px;letter-spacing:.12em;font-weight:300;line-height:1.5;margin:0 0 20px}.letter-intro p{font-size:13px;line-height:2.2;color:#777;max-width:245px}.stamp{margin-top:80px;width:90px;height:90px;border:1px solid #c3c2ba;border-radius:50%;display:grid;place-items:center;font:9px var(--mono);letter-spacing:.1em;color:#777;transform:rotate(-12deg)}
+form{width:100%}.field{margin-bottom:31px}.field label{display:block;font:9px var(--mono);letter-spacing:.14em;color:#777;margin-bottom:12px}.field input,.field textarea{width:100%;border:0;border-bottom:1px solid #aaa99f;background:transparent;padding:8px 0 12px;outline:none;font-size:14px;color:#222;border-radius:0}.field textarea{resize:vertical;min-height:156px;line-height:1.9}.field input:focus,.field textarea:focus{border-color:#222}.field small{display:block;color:#999;font:10px var(--mono);margin-top:9px}.checkline{display:flex;align-items:center;gap:10px;font-size:12px;color:#666;margin:2px 0 37px}.checkline input{accent-color:#333;width:13px;height:13px}.submit{background:transparent;border:1px solid #494943;padding:14px 23px;min-width:180px;text-align:left;display:flex;justify-content:space-between;align-items:center;font:10px var(--mono);letter-spacing:.13em;cursor:pointer;transition:.2s}.submit:hover{background:#292a27;color:var(--paper)}#success{display:none;padding:32px 0;border-top:1px solid var(--line);font-size:14px;line-height:2}.foot{border-top:1px solid var(--line);padding:25px 5.4vw 35px;display:flex;justify-content:space-between;color:#888;font:9px var(--mono);letter-spacing:.12em}
+@media(max-width:700px){.top{height:58px;padding:0 6vw}.nav{gap:15px;font-size:9px}.nav a:nth-child(2){display:none}main{padding:0 6vw}.hero{min-height:auto;grid-template-columns:1fr;padding:65px 0 76px}.hero-copy{padding:0 0 36px}.hero h1{font-size:58px;margin:22px 0 8px}.hero-note{margin-top:35px;width:83%;font-size:12px}.hero-art{height:350px;margin:0 0 0 12%}.moon{width:210px}.issue{grid-template-columns:1fr;gap:28px;padding:45px 3% 65px}.issue h2{font-size:25px}.about-grid{grid-template-columns:1fr;gap:15px;padding:25px 3% 78px}.about-title{font-size:42px}.about-body{padding:10px 0 0;font-size:12px}.letter-wrap{padding-bottom:80px}.letter-head{margin-bottom:38px}.letter-layout{grid-template-columns:1fr;gap:42px;padding:0 3%}.letter-intro h2{font-size:34px}.letter-intro p{max-width:none}.stamp{display:none}.field{margin-bottom:26px}.foot{padding-left:6vw;padding-right:6vw}.meta{gap:18px}.eyebrow,.label,.micro{font-size:9px}}
+</style>
+</head>
+<body>
+<header class="top"><a class="brand" href="#home">雷霆冲刺</a><nav class="nav"><a href="#home">HOME</a><a href="#about">ABOUT</a><a href="#letter">LETTER ↗</a></nav><span>ON AIR&nbsp; · &nbsp;01</span></header>
+<main>
+<section class="hero" id="home"><div class="hero-copy"><div class="eyebrow">A LETTERS-ONLY RADIO / 001</div><h1>雷霆<br>冲刺</h1><div class="subtitle">TONIGHT, WE LISTEN.</div><p class="hero-note">在城市安静下来的时候，<br>把还没说出口的话寄到这里。<br>我们会在节目里，轻轻读给夜晚听。</p></div><div class="hero-art" aria-label="月亮与夜空的抽象插画"><div class="moon"></div><div class="orbit"></div><div class="horizon"></div><span class="vertical">SOUND OF THE NIGHT</span><span class="art-caption">LIGHTING RUSH - OTOMAD RADIO</span></div></section>
+<section class="issue" id="issue"><div><div class="eyebrow">CURRENT PROGRAM / 2026</div><h2>雷霆<br>冲刺</h2><div class="meta"><span>征集进行中</span><span>每周五　23:00</span></div></div><div class="issue-copy"><p>本系列栏目，是继「雨亭漫行」后的</p><p>民办野狗系列电台节目</p><p>本栏目在 bilibili 平台，搜索栏目名就可搜寻到</p><p>因为我想不可能会有第二个人能想到这种雷霆名字了</p></div></section>
+<section id="about"><div class="section-head"><span class="label">ABOUT THE PROGRAM</span><span class="micro">02 / 03</span></div><div class="about-grid"><h2 class="about-title">让声音<br>有一个<br>抵达的地方。</h2><div class="about-body"><p>夜航信箱是一档收集听众来信的网络电台。每一期，我们围绕一个主题，留出一段安静的时间，读信，也听信背后的故事。</p><p>你可以留下昵称，也可以选择匿名。邮箱仅用于必要时联系，不会在节目中公开。</p><p>不必写得完整。一个片段、一句问候，或没有寄出的告别，都可以成为来信。</p><div class="signature">A SMALL RADIO FOR THE QUIET HOURS<br>EST. 2026</div></div></div></section>
+<section class="letter-wrap" id="letter"><div class="letter-head"><span class="label">SEND A LETTER</span></div><div class="letter-layout"><div class="letter-intro"><h2>来信<br>联络</h2><p>当你准备好后即可点击投递<br>我们会在下期栏目播出时采用</p><div class="stamp">NIGHT<br>POST<br>✳</div></div><form id="letterForm" action="https://formspree.io/f/xdeakezq" method="POST"><div class="field"><label for="name">昵称 *</label><input id="name" name="name"  required></div><div class="field"><label for="email">邮箱（选填）</label><input id="email" name="email" type="email" ><small>不会在节目或页面公开。</small></div><div class="field"><label for="subject">主题 *</label><input id="subject" name="subject"  required></div><div class="field"><label for="message">来信内容 *</label><textarea id="message" name="message"  required></textarea></div><label class="checkline"><input type="checkbox" name="anonymous">希望以匿名方式播出</label><button class="submit" type="submit"><span>送出</span><span></span></button><div id="success" role="status"><span class="eyebrow">LETTER RECEIVED</span><br>我们已接收到了你的邮件</div><div id="formError" role="alert" style="display:none;color:#9b3d35;font-size:12px;line-height:1.8;margin-top:18px"></div></form></div></section>
+</main><footer class="foot"><span>雷霆冲刺　/　LIGHTING RUSH</span><span>TAKE YOUR TIME.</span></footer>
+<script>
+const letterForm=document.getElementById('letterForm');
+letterForm.action='https://formspree.io/f/xdeakezq';
+letterForm.method='POST';
+letterForm.addEventListener('submit',async function(e){
+ e.preventDefault();
+ if(!this.reportValidity())return;
+ const button=this.querySelector('.submit');
+ const buttonText=button.querySelector('span:first-child');
+ const status=document.getElementById('success');
+ const error=document.getElementById('formError');
+ const data=new FormData(this);
+ data.set('_subject','雷霆冲刺来信｜'+(data.get('subject')||'新来信'));
+ data.set('anonymous',this.elements.anonymous.checked?'是':'否');
+ if(data.get('email'))data.set('_replyto',data.get('email'));
+ button.disabled=true;buttonText.textContent='投递中…';error.style.display='none';
+ try{
+   const response=await fetch(this.action,{method:'POST',body:data,headers:{'Accept':'application/json'}});
+   if(!response.ok)throw new Error('提交失败');
+   this.querySelectorAll('.field,.checkline,.submit').forEach(el=>el.style.display='none');
+   status.style.display='block';
+ }catch(err){
+   error.textContent='这次没有投递成功，请检查网络后重试。你填写的内容仍保留在表单中。';
+   error.style.display='block';button.disabled=false;buttonText.textContent='送出';
+ }
+});
+</script>
+</body></html>
+<style>
+/* Reference-led refinement: quiet white canvas, compact editorial columns */
+:root{--paper:#fff;--ink:#282825;--muted:#92928e;--line:#e6e6e2}
+.top{height:70px;border:0;padding:0 5.1vw;justify-content:flex-end;gap:clamp(35px,12vw,245px)}
+.brand{margin-right:auto;font-size:10px}
+.nav{gap:30px;font-size:9px;letter-spacing:.12em;color:#555}
+.top>span{display:none}
+main{max-width:1240px;padding:0 5.1vw}
+.hero{min-height:735px;grid-template-columns:1fr 1fr;padding:80px 8% 120px;align-items:start}
+.hero-copy{grid-column:2;grid-row:1;padding:26px 0 0 4%}
+.hero h1{font-size:48px;line-height:1.65;letter-spacing:.2em;margin:22px 0 3px}
+.eyebrow,.subtitle,.label,.micro{font-size:9px}
+.hero-note{font-size:11px;margin-top:35px;width:245px;line-height:2.15;color:#777}
+.hero-art{grid-column:1;grid-row:1;height:370px;margin:24px 0 0 10%;background:#171716}
+.moon{width:34%;aspect-ratio:1;border-radius:0;background:#f8f8f5;right:-1px;top:0;box-shadow:none}
+.orbit,.horizon{display:none}
+.art-caption{color:#eee;font-size:8px;bottom:13px;left:14px}
+.vertical{color:#c9c9c4;right:12px;top:13px;font-size:8px}
+.issue{grid-template-columns:.75fr 1fr;gap:12%;padding:54px 15% 95px}
+.issue h2{font-size:22px}
+.issue-copy{font-size:12px;line-height:2.25}
+.about-grid{grid-template-columns:.85fr 1fr;gap:13%;padding:40px 15% 150px}
+.about-title{font-size:42px;line-height:1.8}
+.about-body{font-size:12px;padding-top:38px}
+.section-head,.letter-wrap{margin-left:8%;margin-right:8%}
+.section-head{padding-top:20px}
+.letter-wrap{padding-bottom:120px}
+.letter-layout{grid-template-columns:.8fr 1.1fr;gap:13%;padding:0 14%}
+.letter-intro h2{font-size:32px;line-height:1.7}
+.letter-intro p{font-size:12px}
+.field label{font-size:9px}
+.field input,.field textarea{font-size:13px;border-bottom-color:#d0d0cb}
+.field textarea{min-height:130px}
+.submit{background:#999;border-color:#999;color:white;justify-content:center;text-align:center;min-width:100%;padding:12px}
+.submit:hover{background:#555;color:white}
+.foot{border:0;justify-content:center;padding:30px 5vw 40px;font-size:8px}
+.foot span:last-child{display:none}
+@media(max-width:700px){
+.top{height:58px;gap:0}.brand{font-size:10px}.nav{gap:17px}.nav a:nth-child(2){display:block}
+main{padding:0 6vw}
+.hero{min-height:auto;grid-template-columns:1fr;padding:52px 3% 72px;gap:32px}
+.hero-art{grid-column:1;grid-row:2;margin:0 13% 0 0;height:290px}
+.hero-copy{grid-column:1;grid-row:1;padding:0 0 0 12%}
+.hero h1{font-size:43px}
+.hero-note{margin-top:25px}
+.issue{grid-template-columns:1fr;gap:23px;padding:40px 4% 65px}
+.about-grid{grid-template-columns:1fr;gap:0;padding:25px 4% 80px}
+.about-title{font-size:39px}
+.about-body{padding-top:18px}
+.section-head,.letter-wrap{margin-left:0;margin-right:0}
+.letter-layout{grid-template-columns:1fr;gap:33px;padding:0 4%}
+.letter-intro h2{font-size:31px}
+.stamp{display:none}
+}
+</style>
+<style>
+/* Full-screen, click-to-switch edition */
+html,body{height:100%;overflow:hidden}
+body{background:#f5f4f0}
+.top{position:fixed;z-index:20;inset:0 0 auto;height:64px;padding:0 4vw;justify-content:flex-end;gap:clamp(30px,10vw,190px);color:#30302d;transition:color .35s}
+.brand{margin-right:auto;font-size:11px;letter-spacing:.18em}
+.top>span{display:none}
+.nav{gap:34px}
+.nav a{cursor:pointer}
+main{max-width:none;height:100dvh;padding:0}
+.hero,.issue,.about-grid,.letter-wrap{position:absolute;inset:0;margin:0;height:100dvh;width:100%;max-width:none;transition:transform .72s cubic-bezier(.76,0,.24,1),opacity .5s;overflow:auto}
+.hero{display:block;min-height:0;padding:0;background:#f4f3ef;transform:translateX(0);opacity:1;overflow:hidden}
+.hero-art{position:absolute;inset:0 auto 0 0;width:50%;height:auto;margin:0;background:#171716;transition:transform .72s cubic-bezier(.76,0,.24,1)}
+.moon{width:25%;aspect-ratio:1;right:0;top:12%;background:#f8f8f5}
+.orbit,.horizon,.vertical{display:none}
+.art-caption{left:7%;bottom:8%;color:#d9d9d4;font-size:10px;letter-spacing:.16em}
+.hero-copy{position:absolute;inset:0 0 0 50%;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding:8% 0 8% 11%;transition:transform .72s cubic-bezier(.76,0,.24,1)}
+.hero-copy .eyebrow,.hero-copy .subtitle,.hero-note{display:none}
+.hero h1{font-size:clamp(62px,9vw,128px);line-height:1.45;letter-spacing:.22em;margin:0;font-weight:300}
+.hero h1:after{content:"";display:block}
+.top.on-dark{color:#f1f0eb}
+.top.on-dark .nav{color:#e4e3de}
+.issue{inset:0;background:#fff;display:grid;grid-template-columns:1fr 1fr;align-items:center;padding:12vw 13vw 8vw;opacity:0;transform:translateX(100%);overflow:hidden}
+.issue>div:first-child{padding-left:4%}
+.issue .eyebrow,.issue .meta{display:none}
+.issue h2{font-size:clamp(54px,8vw,112px);font-weight:300;letter-spacing:.18em;line-height:1.55;margin:0}
+.issue-copy{font-size:14px;line-height:2.2;color:#777;max-width:300px;margin-left:16%}
+.section-head{display:none}
+.letter-wrap{background:#f4f3ef;padding:0;opacity:0;transform:translateX(100%);overflow:auto}
+.letter-head{position:absolute;top:90px;left:10%;right:10%;margin:0}
+.letter-layout{height:100%;display:grid;grid-template-columns:.75fr 1.25fr;gap:9%;align-items:center;padding:120px 15% 60px}
+.letter-intro h2{font-size:clamp(38px,5.4vw,72px);font-weight:300;letter-spacing:.12em;line-height:1.5;margin:0 0 24px}
+.letter-intro p{font-size:14px;line-height:2.2;color:#777;max-width:260px;white-space:pre-line}
+.stamp{display:none}
+.field label,.field small{display:none!important}
+.field{margin-bottom:28px}
+.field input,.field textarea{font-size:14px;border-bottom:1px solid #bbb;background:transparent;padding:12px 0}
+.field textarea{min-height:170px}
+.checkline{font-size:12px;margin:10px 0 35px}
+.submit{background:#999;border:0;color:#fff;justify-content:center;min-width:100%;padding:14px}
+.submit span:last-child{display:none}
+.submit:hover{background:#555;color:#fff}
+#success{font-size:14px}
+body[data-page="home"] .hero{transform:translateX(0);opacity:1;z-index:3}
+body[data-page="home"] .issue{transform:translateX(100%);opacity:0;z-index:1}
+body[data-page="home"] .letter-wrap{transform:translateX(100%);opacity:0;z-index:1}
+body[data-page="about"] .hero{transform:translateX(-100%);opacity:1;z-index:2}
+body[data-page="about"] .hero-art{transform:translateX(-100%)}
+body[data-page="about"] .hero-copy{transform:translateX(-100%)}
+body[data-page="about"] .issue{transform:translateX(0);opacity:1;z-index:3}
+body[data-page="about"] .letter-wrap{transform:translateX(100%);opacity:0;z-index:1}
+body[data-page="letter"] .hero{transform:translateX(-100%);opacity:1;z-index:1}
+body[data-page="letter"] .hero-art{transform:translateX(-100%)}
+body[data-page="letter"] .hero-copy{transform:translateX(-100%)}
+body[data-page="letter"] .issue{transform:translateX(-100%);opacity:1;z-index:2}
+body[data-page="letter"] .letter-wrap{transform:translateX(0);opacity:1;z-index:3}
+.foot{display:none}
+@media(max-width:700px){
+.top{height:58px;padding:0 6vw;gap:0}.nav{gap:19px}
+.hero-art{inset:0 0 auto;width:100%;height:45%;}.moon{width:23%;top:22%}
+.art-caption{left:6%;bottom:10%}
+.hero-copy{inset:45% 0 0;justify-content:center;padding:0 10%}
+.hero h1{font-size:clamp(50px,14vw,82px)}
+.issue{grid-template-columns:1fr;padding:23vh 10vw 10vh;align-content:center;gap:24px}
+.issue>div:first-child{padding-left:0}
+.issue h2{font-size:clamp(44px,12vw,76px)}
+.issue-copy{margin:0;font-size:13px}
+.letter-head{top:80px;left:7%;right:7%}
+.letter-layout{grid-template-columns:1fr;align-content:start;gap:22px;padding:130px 8% 42px}
+.letter-intro h2{font-size:39px;margin-bottom:10px}
+.letter-intro p{font-size:12px;margin:0}
+.field{margin-bottom:17px}
+.field textarea{min-height:110px}
+.checkline{margin:3px 0 20px}
+}
+</style>
+<script>
+(()=> {
+ const names=["home","about","letter"];
+ function show(page){
+   if(!names.includes(page)) page="home";
+   document.body.dataset.page=page;
+   document.querySelector(".top").classList.toggle("on-dark",page==="home");
+   document.querySelectorAll(".nav a").forEach(a=>a.classList.toggle("active",a.dataset.page===page));
+   history.replaceState(null,"","#"+page);
+ }
+ document.addEventListener("DOMContentLoaded",()=>{
+   document.querySelectorAll(".nav a").forEach(a=>{
+     const label=a.textContent.trim().toLowerCase();
+     const page=label.startsWith("home")?"home":label.startsWith("about")?"about":"letter";
+     a.dataset.page=page;a.href="#"+page;
+     a.addEventListener("click",e=>{e.preventDefault();show(page)});
+   });
+   show(location.hash.slice(1)||"home");
+   addEventListener("hashchange",()=>show(location.hash.slice(1)));
+ });
+})();
+</script>
+
+<style>
+#about{display:none!important}
+</style>
+
+<style>
+/* Final layout adjustments from browser comments */
+.hero,.issue,.letter-wrap{background:#fff}
+.hero{background:#fff!important}
+.hero-art{overflow:visible}
+.moon{width:30%;right:-30%;top:12%}
+.art-caption{left:3%;bottom:4%}
+.hero-copy{align-items:flex-start}
+.hero h1{font-size:clamp(62px,9vw,128px);line-height:1.45}
+.issue{background:#fff}
+.issue h2{visibility:hidden}
+.issue-copy{position:absolute;left:61%;top:50%;transform:translateY(-50%);margin:0;max-width:300px}
+.letter-wrap{background:#fff}
+.letter-head .micro{display:none}
+.field label{display:block!important}
+.field small{display:none!important}
+body[data-page="about"] .hero{transform:translateX(0);background:#fff;z-index:4;pointer-events:none}
+body[data-page="about"] .hero-art{transform:translateX(-100%)}
+body[data-page="about"] .hero-copy{transform:translateX(-100%)}
+body[data-page="letter"] .hero{transform:translateX(0);background:#fff;z-index:1;pointer-events:none}
+body[data-page="letter"] .hero-art{transform:translateX(-100%)}
+body[data-page="letter"] .hero-copy{transform:translateX(-100%)}
+body[data-page="about"] .issue{z-index:3}
+body[data-page="letter"] .issue{z-index:2}
+body[data-page="letter"] .letter-wrap{z-index:3}
+@media(max-width:700px){
+.moon{right:-24%;width:31%;top:18%}
+.art-caption{left:3%;bottom:4%}
+.hero h1{font-size:clamp(50px,14vw,82px)}
+.issue-copy{left:10%;right:10%;top:66%;transform:none;max-width:none}
+}
+</style>
+<style>
+body[data-page="about"] .hero,body[data-page="letter"] .hero{background:transparent!important}
+</style>
+<style>
+/* Keep the cover tile attached to the moving dark panel */
+body{background:#fff!important}
+.hero{background:#fff!important}
+.hero-art{left:0;transform:translateX(4vw);overflow:hidden}
+.moon{right:0;top:12%;width:25%;transform:none}
+.art-caption{left:3%;bottom:4%}
+body[data-page="home"] .hero-art{transform:translateX(4vw)}
+body[data-page="about"] .hero-art{transform:translateX(calc(-100% - 4vw))}
+body[data-page="letter"] .hero-art{transform:translateX(calc(-100% - 4vw))}
+.hero-copy{z-index:5;background:transparent!important}
+body[data-page="home"] .hero-copy{transform:translateX(0)}
+body[data-page="about"] .hero-copy{transform:translateX(-100%)}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 100vw))}
+body[data-page="about"] .hero{z-index:4;background:transparent!important;pointer-events:none}
+body[data-page="letter"] .hero{z-index:4;background:transparent!important;pointer-events:none}
+body[data-page="about"] .issue{z-index:3}
+body[data-page="letter"] .issue{z-index:2}
+body[data-page="letter"] .letter-wrap{z-index:3}
+@media(max-width:700px){
+.hero-art{transform:translateX(0)}
+.moon{right:0;width:25%}
+body[data-page="home"] .hero-art{transform:translateX(0)}
+body[data-page="about"] .hero-art{transform:translateX(-100%)}
+body[data-page="letter"] .hero-art{transform:translateX(-100%)}
+body[data-page="about"] .hero-copy{transform:translateX(-100%)}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 100vw))}
+}
+</style>
+<style>
+/* Fill the left edge while extending the cover toward the title */
+.hero{background:transparent!important;z-index:4}
+.hero-art{left:0;width:55%;transform:none!important;overflow:hidden;border:0}
+.moon{right:0;width:25%;border:0;outline:0;box-shadow:none}
+.hero-copy{left:55%;padding-left:11%;background:transparent!important}
+body[data-page="home"] .hero-art{transform:none!important}
+body[data-page="about"] .hero-art,body[data-page="letter"] .hero-art{transform:translateX(-100%)!important}
+body[data-page="home"] .hero-copy{transform:translateX(0)!important}
+body[data-page="about"] .hero-copy{transform:translateX(-100%)!important}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 100vw))!important}
+body[data-page="home"] .hero{z-index:4}
+body[data-page="about"] .hero,body[data-page="letter"] .hero{z-index:4;background:transparent!important}
+body[data-page="home"] .issue{z-index:1}
+body[data-page="about"] .issue{z-index:3}
+body[data-page="letter"] .issue{z-index:2}
+body[data-page="home"] .letter-wrap{z-index:1}
+body[data-page="about"] .letter-wrap{z-index:1}
+body[data-page="letter"] .letter-wrap{z-index:3}
+@media(max-width:700px){
+.hero-art{width:100%;left:0;transform:none!important}
+.hero-copy{left:0;top:45%;padding:0 10%;height:55%}
+body[data-page="about"] .hero-art,body[data-page="letter"] .hero-art{transform:translateX(-100%)!important}
+body[data-page="about"] .hero-copy{transform:translateX(-100%)!important}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 100vw))!important}
+}
+</style>
+<style>
+body[data-page="about"] .hero-copy{transform:translateX(calc(-100% - 9vw))!important}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 109vw))!important}
+@media(max-width:700px){
+body[data-page="about"] .hero-copy{transform:translateX(-100%)!important}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 100vw))!important}
+}
+</style>
+
+<style>
+/* Extend the cover to the marked boundary; keep its left edge anchored */
+.hero-art{left:0;width:68.5%;transform:none!important;z-index:8;overflow:hidden;border:0}
+.moon{right:0;width:25%;border:0;outline:0;box-shadow:none}
+.hero-copy{left:68.5%;padding-left:11.7%;z-index:5}
+body[data-page="home"] .hero-art{transform:none!important}
+body[data-page="about"] .hero-art,body[data-page="letter"] .hero-art{transform:translateX(-100%)!important}
+body[data-page="home"] .hero-copy{transform:translateX(0)!important}
+body[data-page="about"] .hero-copy{transform:translateX(calc(-100% - 36vw))!important}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 136vw))!important}
+body[data-page="home"] .hero{z-index:4}
+body[data-page="about"] .hero,body[data-page="letter"] .hero{z-index:4;background:transparent!important;pointer-events:none}
+@media(max-width:700px){
+.hero-art{left:0;width:100%;transform:none!important}
+.hero-copy{left:0;top:45%;padding:0 10%;height:55%}
+body[data-page="about"] .hero-copy{transform:translateX(-100%)!important}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 100vw))!important}
+}
+</style>
+
+
+
+
