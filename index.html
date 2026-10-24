@@ -1,2893 +1,343 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Decoder · 五度圈解码器</title>
-  <meta name="description" content="简单的五度圈小工具">
-  <meta name="theme-color" content="#eab308">
-  <meta name="color-scheme" content="light">
-
-  <!-- 分享卡片 -->
-  <meta property="og:type" content="website">
-  <meta property="og:title" content="Decoder · 五度圈解码器">
-  <meta property="og:description" content="简单的五度圈小工具">
-  <meta name="twitter:card" content="summary">
-
-  <!-- 图标直接用内联 SVG，不额外增加请求 -->
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23eab308'/%3E%3Ccircle cx='32' cy='32' r='16' fill='%23fffdf5'/%3E%3Ccircle cx='32' cy='32' r='10' fill='%23111318'/%3E%3Ccircle cx='32' cy='32' r='3.4' fill='%23eab308'/%3E%3C/svg%3E">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-  <style>
-    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
-    body {
-      margin: 0;
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      color: #111827;
-      background-color: #ffffff;
-      /* 只加一点点纹理：极浅的点阵 */
-      background-image: radial-gradient(rgba(15, 23, 42, 0.05) 1px, transparent 1.1px);
-      background-size: 24px 24px;
-      min-height: 100vh;
-      overflow-x: hidden;
-    }
-
-    .device-card {
-      width: 100%;
-      max-width: min(74vh, 680px);
-      aspect-ratio: 1 / 1;
-      position: relative;
-      transform-style: preserve-3d;
-      transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
-    }
-    .device-card.is-flipped {
-      transform: rotateY(180deg);
-    }
-    .device-face {
-      position: absolute;
-      inset: 0;
-      backface-visibility: hidden;
-      -webkit-backface-visibility: hidden;
-      border-radius: 36px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .device-face-front {
-      transform: translateZ(26px);
-      filter: drop-shadow(0 24px 32px rgba(15, 23, 42, 0.16)) drop-shadow(0 6px 10px rgba(15, 23, 42, 0.08));
-    }
-    .device-face-back {
-      transform: rotateY(180deg) translateZ(26px);
-      filter: drop-shadow(0 24px 32px rgba(15, 23, 42, 0.16)) drop-shadow(0 6px 10px rgba(15, 23, 42, 0.08));
-    }
-    /* 静止时“压平”3D：perspective 下 translateZ 会让整张卡在合成器里被非整数倍缩放（约 1.0176x）重采样，
-       轮盘转到不同角度时图层边界随之变化，像素对齐就不同 → 有的位置清晰、有的位置发糊。
-       静止时改用与透视投影完全等价的 2D scale 平面绘制（矢量按目标尺寸直接栅格化），翻转动画期间才恢复真 3D。 */
-    .scene.is-resting { perspective: none; }
-    .scene.is-resting .device-card { transform-style: flat; }
-    .scene.is-resting .device-face { backface-visibility: visible; -webkit-backface-visibility: visible; }
-    .scene.is-resting .device-thickness-layer { transform: scale(calc(1500 / (1500 - var(--z)))) !important; z-index: var(--zf); }
-    .scene.is-resting .device-face-front { transform: none; z-index: 100; }
-    .scene.is-resting .device-face-front > svg { transform: scale(calc(1500 / 1474)); }
-    .scene.is-resting .device-card:not(.is-flipped) .device-face-back { visibility: hidden; }
-    .scene.is-resting .device-card.is-flipped .device-thickness-layer { transform: scale(calc(1500 / (1500 + var(--z)))) !important; z-index: var(--zb); }
-    .scene.is-resting .device-card.is-flipped .device-face-back { transform: rotateY(180deg); z-index: 100; }
-    .scene.is-resting .device-card.is-flipped .device-face-back > svg { transform: scale(calc(1500 / 1474)); }
-    .scene.is-resting .device-card.is-flipped .device-face-front { visibility: hidden; }
-    /* Physical Acrylic Sandwich Thickness Layers between Z=-25px and Z=+25px */
-    .device-thickness-layer {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    /* Custom Scrollbar */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #161821; }
-    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
-
-    /* Interactive hotspots */
-    .chord-hotspot {
-      cursor: pointer;
-      transition: filter 0.15s ease, transform 0.15s ease;
-    }
-    .chord-hotspot:hover {
-      filter: brightness(1.2) drop-shadow(0 0 8px rgba(250, 204, 21, 0.65));
-    }
-    .chord-hotspot:active {
-      transform: scale(0.96);
-    }
-    .wheel-grab {
-      cursor: grab;
-    }
-    .wheel-grab:active {
-      cursor: grabbing;
-    }
-
-    /* ---------- 版式：页面上只留这台机器 ---------- */
-    .stage {
-      position: relative;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 20px;
-      padding: 26px 20px 30px;
-      overflow: hidden;
-    }
-
-    /* 重置时用同一套缓动把位置和大小平滑送回默认值 */
-    .scene.is-resetting { transition: transform 0.52s cubic-bezier(0.22, 1, 0.36, 1); }
-    .paper.is-resetting { transition: transform 0.52s cubic-bezier(0.22, 1, 0.36, 1); }
-    .roll-piano.is-resetting { transition: transform 0.52s cubic-bezier(0.22, 1, 0.36, 1); }
-
-    .scene {
-      position: relative;
-      z-index: 5;
-      width: 100%;
-      max-width: min(74vh, 680px);
-      perspective: 1500px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transform-origin: 50% 50%;
-    }
-    /* 面板投影只由 .device-face 的 drop-shadow 提供（原先那条贴地的接触阴影已移除） */
-
-    /* ---------- 说明文档：一张实体白纸（在五度圈下层） ---------- */
-    .paper {
-      position: absolute;
-      left: 64px;
-      top: 88px;
-      width: 520px;
-      height: 720px;
-      z-index: 2;
-      transform-origin: 50% 50%;
-      touch-action: none;
-      pointer-events: none;   /* 只有纸本身和纸团可点，空白处不挡下层 */
-    }
-
-    /* 纸：微微歪一点，像随手放在桌上
-       外层只负责投影和整体形变，裁剪（揉皱轮廓）放到内层，否则 box-shadow 会被一起裁掉 */
-    .paper-sheet {
-      position: absolute;
-      inset: 0;
-      border-radius: 2px;
-      box-shadow:
-        0 0 0 1px rgba(110, 100, 82, 0.12),
-        0 1px 2px rgba(15, 23, 42, 0.1),
-        0 5px 12px -5px rgba(15, 23, 42, 0.22),
-        0 20px 38px -22px rgba(15, 23, 42, 0.5),
-        0 48px 80px -60px rgba(15, 23, 42, 0.45);
-      transform: rotate(-0.7deg);
-      transform-origin: 50% 50%;
-      transition:
-        transform 0.62s cubic-bezier(0.65, 0, 0.35, 1),
-        opacity 0.2s ease 0.24s,
-        filter 0.45s ease,
-        box-shadow 0.45s ease;
-      pointer-events: auto;
-      cursor: pointer;
-      will-change: transform;
-    }
-    .paper-crumple {
-      position: absolute;
-      inset: 0;
-      background-color: #fffdf8;
-      background-image:
-        repeating-linear-gradient(0deg, rgba(120, 110, 88, 0.03) 0 1px, rgba(120, 110, 88, 0) 1px 3px),
-        repeating-linear-gradient(90deg, rgba(120, 110, 88, 0.02) 0 1px, rgba(120, 110, 88, 0) 1px 4px),
-        radial-gradient(120% 90% at 18% 8%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0) 60%);
-      border-radius: 2px;
-      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
-      overflow: hidden;
-      clip-path: polygon(0% 0%, 25% 0%, 50% 0%, 75% 0%, 100% 0%, 100% 25%, 100% 50%, 100% 75%, 100% 100%, 75% 100%, 50% 100%, 25% 100%, 0% 100%, 0% 75%, 0% 50%, 0% 25%);
-      transition: clip-path 0.62s cubic-bezier(0.65, 0, 0.35, 1);
-      will-change: clip-path;
-    }
-    /* 揉皱时浮出的褶皱 */
-    .paper-crumple::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      opacity: 0;
-      background:
-        radial-gradient(ellipse at 50% 46%, rgba(255, 255, 255, 0.9) 0 5%, rgba(255, 255, 255, 0) 42%),
-        conic-gradient(from 18deg at 50% 48%, rgba(120, 110, 88, 0.2) 0 5%, rgba(255, 255, 255, 0.62) 7% 10%, rgba(120, 110, 88, 0.04) 12% 20%, rgba(255, 255, 255, 0.74) 22% 25%, rgba(120, 110, 88, 0.16) 27% 31%, rgba(255, 255, 255, 0.04) 34% 45%, rgba(120, 110, 88, 0.2) 48% 52%, rgba(255, 255, 255, 0.72) 54% 58%, rgba(120, 110, 88, 0.04) 61% 72%, rgba(255, 255, 255, 0.76) 75% 78%, rgba(120, 110, 88, 0.15) 80% 84%, rgba(255, 255, 255, 0.05) 87% 96%, rgba(120, 110, 88, 0.2) 98% 100%),
-        linear-gradient(64deg, transparent 45%, rgba(120, 110, 88, 0.28) 47%, transparent 50%),
-        linear-gradient(-28deg, transparent 37%, rgba(255, 255, 255, 0.9) 39%, transparent 42%),
-        linear-gradient(112deg, transparent 57%, rgba(120, 110, 88, 0.2) 59%, transparent 62%),
-        linear-gradient(18deg, transparent 25%, rgba(120, 110, 88, 0.16) 27%, transparent 30%),
-        linear-gradient(-72deg, transparent 68%, rgba(255, 255, 255, 0.82) 70%, transparent 73%);
-      transition: opacity 0.24s ease;
-    }
-    /* 纸张对折过的那道折痕 */
-    .paper-crumple::after {
-      content: "";
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: 63%;
-      width: 14px;
-      transform: translateX(-7px);
-      background: linear-gradient(90deg,
-        rgba(120, 110, 88, 0) 0%,
-        rgba(120, 110, 88, 0.055) 45%,
-        rgba(120, 110, 88, 0.02) 55%,
-        rgba(120, 110, 88, 0) 100%);
-      transition: opacity 0.16s ease;
-      pointer-events: none;
-    }
-    .paper.is-dragging .paper-sheet { cursor: grabbing; }
-
-    /* 纸上的字 */
-    .paper-content {
-      position: absolute;
-      inset: 0;
-      overflow-y: auto;
-      padding: 30px 42px 26px;
-      font-size: 13px;
-      line-height: 1.6;
-      color: #34322c;
-      transition: opacity 0.2s ease 0.2s;
-      scrollbar-width: none;
-      -ms-overflow-style: none;
-    }
-    .paper-content::-webkit-scrollbar { display: none; }
-    .paper-content h2 {
-      margin: 0 0 4px;
-      font-size: 17px;
-      font-weight: 800;
-      letter-spacing: 0.3px;
-      color: #1e1c17;
-    }
-    .paper-meta {
-      margin: 0 0 22px;
-      padding-bottom: 14px;
-      border-bottom: 1px solid rgba(110, 100, 82, 0.18);
-      font-size: 11.5px;
-      letter-spacing: 0.5px;
-      color: #a49c8d;
-    }
-    .paper-content h3 {
-      margin: 14px 0 4px;
-      font-size: 13px;
-      font-weight: 800;
-      color: #1e1c17;
-    }
-    .paper-content h3:first-of-type { margin-top: 0; }
-    .paper-content p { margin: 0 0 7px; }
-    .paper-content ul,
-    .paper-content ol { margin: 0 0 8px; padding-left: 19px; }
-    .paper-content li { margin-bottom: 3px; }
-    .paper-content code {
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
-      font-size: 11.5px;
-      background: rgba(110, 100, 82, 0.08);
-      padding: 1px 5px;
-      border-radius: 3px;
-    }
-    .paper-endnote {
-      margin-top: 22px;
-      font-size: 11px;
-      color: #b3ab9c;
-      letter-spacing: 0.3px;
-    }
-
-    /* 收起后：一团揉皱的纸 */
-    .paper-ball {
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      width: 88px;
-      height: 88px;
-      margin: -44px 0 0 -44px;
-      border-radius: 46% 54% 49% 51% / 53% 47% 53% 47%;
-      background:
-        /* 高光 */
-        radial-gradient(circle at 29% 25%, rgba(255, 255, 255, 0.95) 0 8%, rgba(255, 255, 255, 0) 36%),
-        /* 右下暗面 */
-        radial-gradient(circle at 74% 76%, rgba(120, 110, 88, 0.22) 0 12%, rgba(120, 110, 88, 0) 48%),
-        /* 几道折痕 */
-        linear-gradient(56deg, rgba(0, 0, 0, 0) 41%, rgba(120, 110, 88, 0.2) 43%, rgba(120, 110, 88, 0) 45%),
-        linear-gradient(-34deg, rgba(0, 0, 0, 0) 58%, rgba(120, 110, 88, 0.15) 60%, rgba(120, 110, 88, 0) 62%),
-        linear-gradient(124deg, rgba(0, 0, 0, 0) 26%, rgba(255, 255, 255, 0.85) 28%, rgba(255, 255, 255, 0) 30%),
-        linear-gradient(-98deg, rgba(0, 0, 0, 0) 68%, rgba(120, 110, 88, 0.13) 70%, rgba(120, 110, 88, 0) 72%),
-        linear-gradient(18deg, rgba(0, 0, 0, 0) 74%, rgba(120, 110, 88, 0.16) 77%, rgba(120, 110, 88, 0) 80%),
-        /* 球体本身 */
-        radial-gradient(circle at 46% 42%, #fcfbf7 0 36%, #f0ede5 62%, #dedacd 85%, #ccc6b7 100%);
-      box-shadow:
-        0 2px 3px -1px rgba(15, 23, 42, 0.18),
-        0 14px 22px -12px rgba(15, 23, 42, 0.5),
-        inset -9px -11px 18px rgba(120, 110, 88, 0.24),
-        inset 7px 9px 15px rgba(255, 255, 255, 0.95),
-        0 0 0 1px rgba(120, 110, 88, 0.1);
-      opacity: 0;
-      transform: scale(0.2) rotate(-30deg);
-      pointer-events: none;
-      cursor: pointer;
-      transition: transform 0.5s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.26s ease;
-      will-change: transform;
-    }
-
-    /* 揉纸团：纸边先被挤成不规则的一块，褶皱同时浮现，最后收进去 */
-    .paper-ball::before,
-    .paper-ball::after {
-      content: "";
-      position: absolute;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.2s ease 0.24s, transform 0.54s cubic-bezier(0.2, 0.8, 0.25, 1) 0.2s;
-    }
-    .paper-ball::before {
-      inset: 7px 8px 10px;
-      border-radius: 45% 55% 48% 52% / 56% 42% 58% 44%;
-      background:
-        radial-gradient(ellipse at 38% 28%, rgba(255, 255, 255, 0.88), transparent 42%),
-        conic-gradient(from 8deg at 52% 48%, rgba(120, 110, 88, 0.3) 0 9%, rgba(255, 255, 255, 0.78) 11% 17%, rgba(120, 110, 88, 0.08) 19% 30%, rgba(255, 255, 255, 0.82) 32% 39%, rgba(120, 110, 88, 0.26) 41% 48%, rgba(255, 255, 255, 0.12) 50% 61%, rgba(120, 110, 88, 0.28) 63% 69%, rgba(255, 255, 255, 0.84) 71% 78%, rgba(120, 110, 88, 0.08) 80% 90%, rgba(255, 255, 255, 0.72) 92% 100%);
-      clip-path: polygon(50% 0%, 66% 7%, 82% 4%, 91% 19%, 100% 35%, 91% 49%, 97% 64%, 83% 77%, 76% 94%, 58% 91%, 44% 100%, 30% 88%, 12% 89%, 10% 70%, 0% 57%, 8% 42%, 3% 25%, 20% 15%, 32% 3%);
-      box-shadow: inset 3px 3px 7px rgba(255, 255, 255, 0.72), inset -4px -5px 8px rgba(91, 82, 67, 0.22);
-      transform: rotate(-26deg) scale(0.72);
-    }
-    .paper-ball::after {
-      inset: 13px 14px 15px;
-      border-radius: 48% 52% 43% 57% / 54% 45% 55% 46%;
-      background:
-        linear-gradient(145deg, transparent 0 43%, rgba(100, 90, 72, 0.32) 45%, rgba(255, 255, 255, 0.78) 48%, transparent 51%),
-        linear-gradient(34deg, transparent 0 48%, rgba(100, 90, 72, 0.24) 50%, rgba(255, 255, 255, 0.76) 53%, transparent 56%),
-        linear-gradient(86deg, transparent 0 40%, rgba(100, 90, 72, 0.22) 42%, rgba(255, 255, 255, 0.66) 45%, transparent 48%);
-      clip-path: polygon(50% 0%, 73% 10%, 100% 32%, 87% 56%, 96% 78%, 68% 100%, 45% 86%, 24% 96%, 0% 69%, 16% 48%, 4% 27%, 32% 11%);
-      transform: rotate(38deg) scale(0.55);
-    }
-
-    .paper.is-collapsed .paper-sheet {
-      transform: rotate(720deg) scale(0.16) skew(8deg, -7deg);
-      filter: blur(0.2px) brightness(0.98);
-      opacity: 0;
-      pointer-events: none;
-      box-shadow: none;
-      transition:
-        transform 0.62s cubic-bezier(0.65, 0, 0.35, 1),
-        opacity 0.14s ease 0.48s,
-        filter 0.5s ease,
-        box-shadow 0.3s ease;
-    }
-    .paper.is-collapsed .paper-crumple {
-      clip-path: polygon(44% 33%, 49% 29%, 56% 31%, 62% 36%, 66% 43%, 63% 49%, 67% 55%, 61% 61%, 55% 66%, 48% 63%, 42% 68%, 36% 62%, 34% 54%, 38% 48%, 35% 40%, 39% 35%);
-      transition: clip-path 0.62s cubic-bezier(0.65, 0, 0.35, 1);
-    }
-    .paper.is-collapsed .paper-crumple::before {
-      opacity: 1;
-      transition: opacity 0.24s ease 0.04s;
-    }
-    .paper.is-collapsed .paper-ball {
-      opacity: 1;
-      transform: scale(1) rotate(0deg);
-      pointer-events: auto;
-      transition: opacity 0.2s ease 0.2s, transform 0.54s cubic-bezier(0.2, 0.8, 0.25, 1) 0.2s;
-    }
-    .paper.is-collapsed .paper-ball::before,
-    .paper.is-collapsed .paper-ball::after {
-      opacity: 1;
-      transform: rotate(0deg) scale(1);
-    }
-    .paper.is-collapsed .paper-crumple::after {
-      opacity: 0;
-    }
-    .paper.is-collapsed .paper-content {
-      opacity: 0;
-      transition: opacity 0.12s ease;
-    }
-    .paper.is-dragging .paper-ball { cursor: grabbing; }
-
-    .paper-handle {
-      position: absolute;
-      width: 40px;
-      height: 40px;
-      margin: -20px 0 0 -20px;
-      border-radius: 50%;
-      z-index: 3;
-      touch-action: none;
-      pointer-events: auto;
-    }
-    .paper-nw { left: 0; top: 0; cursor: nwse-resize; }
-    .paper-ne { left: 100%; top: 0; cursor: nesw-resize; }
-    .paper-sw { left: 0; top: 100%; cursor: nesw-resize; }
-    .paper-se { left: 100%; top: 100%; cursor: nwse-resize; }
-    /* 收起时手柄贴到纸团四角 */
-    .paper.is-collapsed .paper-nw { left: calc(50% - 46px); top: calc(50% - 46px); }
-    .paper.is-collapsed .paper-ne { left: calc(50% + 46px); top: calc(50% - 46px); }
-    .paper.is-collapsed .paper-sw { left: calc(50% - 46px); top: calc(50% + 46px); }
-    .paper.is-collapsed .paper-se { left: calc(50% + 46px); top: calc(50% + 46px); }
-
-    /* ---------- 顶部控制条（默认置顶，可拖动 / 可缩放） ---------- */
-    .dock {
-      position: absolute;
-      top: 18px;
-      left: 0;
-      right: 0;
-      width: max-content;
-      margin: 0 auto;
-      z-index: 10;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      padding: 7px 10px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.88);
-      border: 1px solid rgba(15, 23, 42, 0.09);
-      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 26px -14px rgba(15, 23, 42, 0.25);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      transform-origin: 50% 50%;
-      cursor: grab;
-      touch-action: none;
-    }
-    .dock.is-cursor-nwse { cursor: nwse-resize; }
-    .dock.is-cursor-nesw { cursor: nesw-resize; }
-    .dock.is-dragging,
-    .dock.is-dragging.is-cursor-nwse,
-    .dock.is-dragging.is-cursor-nesw { cursor: grabbing; }
-
-
-    .swatches {
-      display: flex;
-      gap: 7px;
-      padding: 0 5px;
-    }
-    .color-btn {
-      width: 17px;
-      height: 17px;
-      padding: 0;
-      border: 0;
-      border-radius: 50%;
-      cursor: pointer;
-      box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.16);
-      transition: transform 0.16s ease, box-shadow 0.16s ease;
-    }
-    .color-btn[data-color="yellow"] { background: #eab308; }
-    .color-btn[data-color="red"]    { background: #dc2626; }
-    .color-btn[data-color="green"]  { background: #2e9e44; }
-    .color-btn[data-color="gray"]   { background: #52525b; }
-    .color-btn:hover { transform: scale(1.12); }
-    .color-btn.is-on {
-      transform: scale(1.08);
-      box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.16), 0 0 0 2px #ffffff, 0 0 0 3.5px rgba(15, 23, 42, 0.45);
-    }
-    .dock-sep {
-      width: 1px;
-      height: 18px;
-      margin: 0 4px;
-      background: rgba(15, 23, 42, 0.1);
-    }
-
-    .ctl {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      height: 30px;
-      padding: 0 10px;
-      border: 0;
-      border-radius: 999px;
-      background: transparent;
-      color: #4b5563;
-      font-family: inherit;
-      font-size: 12.5px;
-      font-weight: 600;
-      line-height: 1;
-      cursor: pointer;
-      transition: background 0.16s ease, color 0.16s ease;
-    }
-    .ctl:hover { background: rgba(15, 23, 42, 0.055); color: #111827; }
-    .ctl svg { width: 14px; height: 14px; }
-
-    .ctl.is-off { color: #b6bcc5; }
-    /* 静音时在"声音"两字上打一个红叉：从左边扫出来，带一点缩放回弹 */
-    #btn-audio .ctl-text {
-      position: relative;
-      transition: color 0.18s ease;
-    }
-    #btn-audio .ctl-text::after {
-      content: "";
-      position: absolute;
-      left: -5px;
-      right: -5px;
-      top: -4px;
-      bottom: -4px;
-      pointer-events: none;
-      background-repeat: no-repeat;
-      background-image:
-        linear-gradient(45deg, transparent calc(50% - 0.8px), #dc2626 calc(50% - 0.8px), #dc2626 calc(50% + 0.8px), transparent calc(50% + 0.8px)),
-        linear-gradient(-45deg, transparent calc(50% - 0.8px), #dc2626 calc(50% - 0.8px), #dc2626 calc(50% + 0.8px), transparent calc(50% + 0.8px)),
-        linear-gradient(45deg, transparent calc(50% - 1.9px), rgba(255, 255, 255, 0.92) calc(50% - 1.9px), rgba(255, 255, 255, 0.92) calc(50% + 1.9px), transparent calc(50% + 1.9px)),
-        linear-gradient(-45deg, transparent calc(50% - 1.9px), rgba(255, 255, 255, 0.92) calc(50% - 1.9px), rgba(255, 255, 255, 0.92) calc(50% + 1.9px), transparent calc(50% + 1.9px));
-      /* 平时藏着：右侧整块裁掉 + 略放大，点静音时从左往右扫出来 */
-      clip-path: inset(0 100% 0 0);
-      transform: scale(1.14);
-      opacity: 0.2;
-      transition:
-        clip-path 0.26s cubic-bezier(0.22, 1, 0.36, 1),
-        transform 0.26s cubic-bezier(0.22, 1, 0.36, 1),
-        opacity 0.16s ease;
-    }
-    #btn-audio.is-off { color: #9aa1ab; }
-    #btn-audio.is-off .ctl-text::after {
-      clip-path: inset(0 0 0 0);
-      transform: scale(1);
-      opacity: 1;
-    }
-
-    /* ---------- 缩放 / 移动手柄 ---------- */
-    .handle {
-      position: absolute;
-      width: 46px;
-      height: 46px;
-      margin: -23px 0 0 -23px;
-      border-radius: 50%;
-      z-index: 200;
-      touch-action: none;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .handle-nw { left: 10.67%; top: 10.67%; cursor: nwse-resize; }
-    .handle-ne { left: 89.33%; top: 10.67%; cursor: nesw-resize; }
-    .handle-sw { left: 10.67%; top: 89.33%; cursor: nesw-resize; }
-    .handle-se { left: 89.33%; top: 89.33%; cursor: nwse-resize; }
-    .handle-move {
-      left: 50%;
-      top: 50%;
-      width: 58px;
-      height: 58px;
-      margin: -29px 0 0 -29px;
-      cursor: move;
-    }
-
-    /* ---------- 设备本体沿用的极少量工具类（已脱离 Tailwind CDN） ---------- */
-    .w-full { width: 100%; }
-    .h-full { height: 100%; }
-    .select-none { user-select: none; -webkit-user-select: none; }
-    .pointer-events-none { pointer-events: none; }
-
-    /* ===== 手卷钢琴：硅胶软垫 + 右端控制盒 ===== */
-    .roll-piano {
-      --piano-accent: #eab308;
-      --box-w: 128px;
-      --mat-w: min(792px, calc(100vw - 168px));
-      position: fixed;
-      right: 56px;
-      bottom: 18px;
-      /* 层级：纸张(2) < 钢琴窗(4) < 五度圈(5) < 控制条(10) */
-      z-index: 4;
-      display: flex;
-      align-items: stretch;
-      height: 116px;
-      /* 右端固定：展开/卷起时控制盒原地不动 */
-      transform: translate(var(--piano-x, 0px), var(--piano-y, 0px)) scale(var(--piano-zoom, 1));
-      transform-origin: 100% 100%;
-      pointer-events: none;
-      filter: drop-shadow(0 9px 14px rgba(15, 23, 42, 0.18));
-    }
-
-    /* 软垫：收卷时整体变窄，左端被裁掉（等于卷进去了） */
-    .piano-mat {
-      position: relative;
-      width: var(--mat-w);
-      overflow: hidden;
-      border-radius: 13px 0 0 13px;
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 22%),
-        linear-gradient(180deg, #23262d, #15171c 62%, #0c0e12);
-      box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.14),
-        inset 0 -3px 8px rgba(0, 0, 0, 0.55);
-      transition: width 0.62s cubic-bezier(0.42, 0.02, 0.24, 1);
-      pointer-events: auto;
-    }
-
-    /* 键床：宽度固定、靠右对齐，收卷时被垫子裁切（键不会被压扁） */
-    .piano-roll {
-      position: absolute;
-      top: 0;
-      right: 0;
-      bottom: 0;
-      width: var(--mat-w);
-      padding: 7px 6px 8px;
-      background: #0b0d10;
-    }
-
-    .piano-white-keys {
-      position: relative;
-      display: grid;
-      grid-template-columns: repeat(21, minmax(0, 1fr));
-      height: 100%;
-      gap: 1px;
-      overflow: hidden;
-      border-radius: 7px 2px 2px 7px;
-      background: #0b0d10;
-    }
-    .piano-black-keys {
-      position: absolute;
-      inset: 7px 6px 8px;
-      pointer-events: none;
-    }
-
-    .piano-key {
-      position: relative;
-      min-width: 0;
-      padding: 0;
-      border: 0;
-      font: inherit;
-      cursor: pointer;
-      touch-action: none;
-    }
-    /* 白键：硅胶质感，键缝是垫子底色印出来的细线 */
-    .piano-key-white {
-      display: flex;
-      align-items: flex-end;
-      justify-content: center;
-      padding-bottom: 4px;
-      border-radius: 1px 1px 4px 4px;
-      background: linear-gradient(180deg, #f7f5f0 0%, #f2f0ea 58%, #e4e1d9 100%);
-      color: #a9a69e;
-      font-size: 8px;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      box-shadow: inset 0 -2px 3px rgba(0, 0, 0, 0.07);
-    }
-
-    /* 黑键：印上去的，几乎不浮雕 */
-    .piano-key-black {
-      position: absolute;
-      top: 0;
-      width: 2.9%;
-      height: 58%;
-      transform: translateX(-50%);
-      border-radius: 0 0 3px 3px;
-      background: linear-gradient(180deg, #2b2f37 0%, #171a20 42%, #0c0e12 100%);
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-      pointer-events: auto;
-    }
-
-    /* 七音高亮（当前调的音阶） */
-    .piano-key-white.is-scale {
-      background: linear-gradient(180deg, #fff9d8 0%, #fdefb0 55%, #f4e08c 100%);
-      color: #6b5a22;
-    }
-    .piano-key-black.is-scale {
-      background: linear-gradient(180deg, #7a6524 0%, #4f4216 50%, #2f270c 100%);
-    }
-    /* 三和弦高亮（正在播放），蓝色，优先级最高 */
-    .piano-key-white.is-chord {
-      background: linear-gradient(180deg, #eaf7ff 0%, #bfe6ff 55%, #8fd0f5 100%);
-      color: #14506e;
-      box-shadow: inset 0 -3px 0 #75bde8;
-    }
-    .piano-key-black.is-chord {
-      background: linear-gradient(180deg, #7cc4f0 0%, #3f9fd4 50%, #1f6f9e 100%);
-    }
-    .piano-key-white.is-pressed {
-      background: linear-gradient(180deg, #dedbd3 0%, #efeee9 60%, #d3d0c7 100%);
-      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.18);
-    }
-    .piano-key-black.is-pressed {
-      background: linear-gradient(180deg, #545a66 0%, #23262d 50%, #14171c 100%);
-    }
-
-    /* 卷起来的圆筒：收卷时从右往左长出来，盖住被裁的键 */
-    .piano-cylinder {
-      position: absolute;
-      top: 0;
-      right: 0;
-      bottom: 0;
-      width: 96px;
-      border-radius: 13px 0 0 13px;
-      transform: scaleX(0);
-      transform-origin: 100% 50%;
-      opacity: 0;
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 26%),
-        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.045) 0 2px, rgba(0, 0, 0, 0.05) 2px 6px),
-        linear-gradient(180deg, #2d313a 0%, #1a1d24 40%, #0d0f13 82%, #06070a 100%);
-      box-shadow:
-        inset 0 0 18px rgba(0, 0, 0, 0.72),
-        inset 0 1px 0 rgba(255, 255, 255, 0.16);
-      transition: transform 0.62s cubic-bezier(0.42, 0.02, 0.24, 1), opacity 0.22s ease;
-      pointer-events: none;
-    }
-    .roll-piano.is-folded .piano-mat { width: 96px; }
-    .roll-piano.is-folded .piano-cylinder { transform: scaleX(1); opacity: 1; }
-    /* 卷起来以后键都收进卷里了，不该再能按响 */
-    .roll-piano.is-folded .piano-roll,
-    .roll-piano.is-folded .piano-roll .piano-key { pointer-events: none; }
-
-    /* 右端控制盒：抓这里可以整台拖动 */
-    .piano-box {
-      position: relative;
-      flex: none;
-      width: var(--box-w);
-      border-radius: 5px 15px 15px 5px;
-      background:
-        linear-gradient(160deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0) 42%),
-        linear-gradient(170deg, #363b45, #1d2027 55%, #101216);
-      box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.2),
-        inset 0 -2px 5px rgba(0, 0, 0, 0.55),
-        -4px 0 10px rgba(0, 0, 0, 0.35);
-      pointer-events: auto;
-      cursor: grab;
-      touch-action: none;
-    }
-    .piano-box.is-cursor-nwse { cursor: nwse-resize; }
-    .piano-box.is-cursor-nesw { cursor: nesw-resize; }
-    .roll-piano.is-dragging .piano-box,
-    .roll-piano.is-dragging .piano-box.is-cursor-nwse,
-    .roll-piano.is-dragging .piano-box.is-cursor-nesw { cursor: grabbing; }
-
-    .piano-display {
-      position: absolute;
-      left: 13px;
-      right: 13px;
-      top: 11px;
-      height: 30px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 3px;
-      border-radius: 4px;
-      background: #07090c;
-      box-shadow: inset 0 0 9px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-      font-size: 7.5px;
-      font-weight: 700;
-      letter-spacing: 0.14em;
-      color: #4d5561;
-      text-transform: uppercase;
-    }
-    .piano-display b {
-      font-size: 16px;
-      line-height: 1;
-      letter-spacing: 0;
-      color: var(--piano-accent);
-      text-shadow: 0 0 9px color-mix(in srgb, var(--piano-accent) 55%, transparent);
-    }
-
-
-
-    .piano-led {
-      position: absolute;
-      left: 14px;
-      bottom: 13px;
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: var(--piano-accent);
-      box-shadow: 0 0 8px color-mix(in srgb, var(--piano-accent) 70%, transparent);
-    }
-    .piano-speaker {
-      position: absolute;
-      right: 12px;
-      bottom: 8px;
-      width: 36px;
-      height: 24px;
-      background: radial-gradient(circle, #05070a 1px, transparent 1.4px) 0 0 / 4px 4px;
-      opacity: 0.75;
-      pointer-events: none;
-    }
-
-
-
-    @media (max-width: 560px) {
-      .stage { gap: 16px; padding: 16px 12px 22px; }
-      .scene { max-width: min(84vh, 100%); }
-      /* 手机上文字按钮收窄一点，但四个功能都要看得见、点得到 */
-      .dock { gap: 3px; padding: 7px 8px; }
-      .ctl { padding: 0 6px; font-size: 12px; }
-      .swatches { gap: 5px; }
-      .dock-sep { margin: 0 3px; }
-      .roll-piano { --box-w: 112px; --mat-w: min(620px, calc(100vw - 152px)); height: 104px; }
-      .piano-display { top: 9px; height: 26px; }
-      .piano-roll { padding: 6px 5px 7px; }
-      .piano-black-keys { inset: 6px 5px 7px; }
-    }
-    @media (max-width: 380px) {
-      .dock { gap: 2px; padding: 6px 6px; }
-      .ctl { padding: 0 4px; font-size: 11.5px; }
-      .swatches { gap: 4px; }
-    }
-
-  </style>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>雷霆冲刺 — OTOMAD RADIO</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap');
+:root{--paper:#f4f3ef;--ink:#222321;--muted:#898983;--line:#c9c8c1;--serif:"Noto Serif SC","Songti SC",serif;--mono:"DM Mono",monospace}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--serif);font-weight:300}a{color:inherit;text-decoration:none}button,input,textarea{font:inherit}
+.top{height:66px;padding:0 5.4vw;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);font:10px var(--mono);letter-spacing:.11em}.brand{font:11px var(--serif);letter-spacing:.22em}.nav{display:flex;gap:32px;color:#696963}.nav a{padding:8px 0}.nav a:hover{color:#111}
+main{max-width:1280px;margin:auto;padding:0 5.4vw}.eyebrow,.label,.micro{font:10px var(--mono);letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+.hero{min-height:690px;display:grid;grid-template-columns:1fr 1fr;align-items:center;position:relative;padding:70px 0 94px}.hero-copy{padding-left:7%;z-index:1}.hero h1{font-size:clamp(46px,7.4vw,102px);font-weight:300;line-height:1.3;letter-spacing:.1em;margin:31px 0 16px}.subtitle{font:11px var(--mono);letter-spacing:.15em;color:#777}.hero-note{margin-top:84px;width:250px;font-size:13px;line-height:2.1;color:#65655f}.hero-art{height:490px;position:relative;background:#e8e7e1;margin-left:6%;overflow:hidden}.moon{position:absolute;width:min(28vw,320px);aspect-ratio:1;border-radius:50%;background:#f5f4ef;right:14%;top:15%;box-shadow:0 0 0 1px #d8d7d0}.orbit{position:absolute;border:1px solid #b9b9b2;width:120%;height:44%;border-radius:50%;left:-10%;top:42%;transform:rotate(-24deg)}.horizon{position:absolute;bottom:21%;left:0;right:0;border-top:1px solid #bab9b2}.art-caption{position:absolute;bottom:22px;left:22px;font:9px var(--mono);letter-spacing:.1em;color:#777}.vertical{position:absolute;right:17px;top:22px;writing-mode:vertical-rl;font:9px var(--mono);letter-spacing:.22em;color:#777}
+.issue{border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1.2fr;gap:8%;padding:70px 7% 100px}.issue h2{font-size:29px;font-weight:300;letter-spacing:.1em;margin:0 0 15px}.issue-copy{max-width:450px;font-size:14px;line-height:2.2;color:#62625c}.meta{display:flex;gap:30px;margin-top:30px;font:9px var(--mono);letter-spacing:.12em;color:#888}
+.section-head{border-top:1px solid var(--line);padding:25px 0;display:flex;justify-content:space-between}
+.about-grid{display:grid;grid-template-columns:1fr 1fr;gap:13%;padding:36px 9% 130px}.about-title{font-size:clamp(38px,5vw,66px);font-weight:300;line-height:1.6;letter-spacing:.12em;margin:0}.about-body{padding-top:70px;font-size:13px;line-height:2.4;color:#66665f}.about-body p{margin:0 0 25px}.signature{font:10px var(--mono);letter-spacing:.12em;margin-top:50px;color:#999}
+.letter-wrap{border-top:1px solid var(--line);padding:26px 0 120px}.letter-head{display:flex;justify-content:space-between;margin:8px 0 60px}.letter-layout{display:grid;grid-template-columns:.75fr 1.25fr;gap:12%;padding:0 9%}.letter-intro h2{font-size:40px;letter-spacing:.12em;font-weight:300;line-height:1.5;margin:0 0 20px}.letter-intro p{font-size:13px;line-height:2.2;color:#777;max-width:245px}.stamp{margin-top:80px;width:90px;height:90px;border:1px solid #c3c2ba;border-radius:50%;display:grid;place-items:center;font:9px var(--mono);letter-spacing:.1em;color:#777;transform:rotate(-12deg)}
+form{width:100%}.field{margin-bottom:31px}.field label{display:block;font:9px var(--mono);letter-spacing:.14em;color:#777;margin-bottom:12px}.field input,.field textarea{width:100%;border:0;border-bottom:1px solid #aaa99f;background:transparent;padding:8px 0 12px;outline:none;font-size:14px;color:#222;border-radius:0}.field textarea{resize:vertical;min-height:156px;line-height:1.9}.field input:focus,.field textarea:focus{border-color:#222}.field small{display:block;color:#999;font:10px var(--mono);margin-top:9px}.checkline{display:flex;align-items:center;gap:10px;font-size:12px;color:#666;margin:2px 0 37px}.checkline input{accent-color:#333;width:13px;height:13px}.submit{background:transparent;border:1px solid #494943;padding:14px 23px;min-width:180px;text-align:left;display:flex;justify-content:space-between;align-items:center;font:10px var(--mono);letter-spacing:.13em;cursor:pointer;transition:.2s}.submit:hover{background:#292a27;color:var(--paper)}#success{display:none;padding:32px 0;border-top:1px solid var(--line);font-size:14px;line-height:2}.foot{border-top:1px solid var(--line);padding:25px 5.4vw 35px;display:flex;justify-content:space-between;color:#888;font:9px var(--mono);letter-spacing:.12em}
+@media(max-width:700px){.top{height:58px;padding:0 6vw}.nav{gap:15px;font-size:9px}.nav a:nth-child(2){display:none}main{padding:0 6vw}.hero{min-height:auto;grid-template-columns:1fr;padding:65px 0 76px}.hero-copy{padding:0 0 36px}.hero h1{font-size:58px;margin:22px 0 8px}.hero-note{margin-top:35px;width:83%;font-size:12px}.hero-art{height:350px;margin:0 0 0 12%}.moon{width:210px}.issue{grid-template-columns:1fr;gap:28px;padding:45px 3% 65px}.issue h2{font-size:25px}.about-grid{grid-template-columns:1fr;gap:15px;padding:25px 3% 78px}.about-title{font-size:42px}.about-body{padding:10px 0 0;font-size:12px}.letter-wrap{padding-bottom:80px}.letter-head{margin-bottom:38px}.letter-layout{grid-template-columns:1fr;gap:42px;padding:0 3%}.letter-intro h2{font-size:34px}.letter-intro p{max-width:none}.stamp{display:none}.field{margin-bottom:26px}.foot{padding-left:6vw;padding-right:6vw}.meta{gap:18px}.eyebrow,.label,.micro{font-size:9px}}
+</style>
 </head>
 <body>
-
-  <!-- 顶部控制条：配色 / 透视 / 翻转 / 声音（可拖动、可缩放） -->
-  <div class="dock" id="dock" role="toolbar" aria-label="外观与声音">
-
-    <div class="swatches" role="group" aria-label="外壳配色">
-      <button type="button" data-color="yellow" class="color-btn is-on" aria-label="经典黄" title="经典黄"></button>
-      <button type="button" data-color="red" class="color-btn" aria-label="复古红" title="复古红"></button>
-      <button type="button" data-color="green" class="color-btn" aria-label="森林绿" title="森林绿"></button>
-      <button type="button" data-color="gray" class="color-btn" aria-label="深空灰" title="深空灰"></button>
-    </div>
-
-    <span class="dock-sep"></span>
-
-    <button type="button" id="btn-xray" class="ctl is-on" title="半透明磨砂面板：可以看到内部完整的五度圈">
-      <span class="ctl-text">半透明</span>
-    </button>
-
-    <button type="button" id="btn-flip" class="ctl" title="翻转正面 / 背面">
-      <span id="flip-label">翻转</span>
-    </button>
-
-    <button type="button" id="btn-audio" class="ctl is-on" title="和弦试听开关">
-      <span id="audio-label" class="ctl-text">声音</span>
-    </button>
-
-    <span class="dock-sep"></span>
-
-    <button type="button" id="btn-reset" class="ctl" title="重置：控制条与五度圈都回到原位原大小">
-      <span class="ctl-text">重置</span>
-    </button>
-
-  </div>
-
-  <!-- 主舞台：页面上只保留这台机器 -->
-  <main class="stage">
-
-    <!-- 说明文档：一张实体白纸（在五度圈下层）。单击揉成纸团 / 再单击展开，长按拖动，四角缩放 -->
-    <div class="paper is-collapsed" id="paper">
-      <div class="paper-sheet">
-        <div class="paper-crumple">
-          <div class="paper-content">
-          <h2>使用说明</h2>
-
-          <h3>一、这是什么</h3>
-          <p>五度圈，一个较为基础的、能够迅速帮你找到一个和弦和音阶构成关系的工具。你不必以此为准来约束和弦的创作，但可以以此作为参考来创作，也省去繁琐的记忆。</p>
-
-          <h3>二、这个五度圈怎么用</h3>
-          <p>你把主音调到 G，也就是最上面露出来的那个板块。我用这个做例子。</p>
-          <ol>
-            <li>每个圆孔下方的数字中，黑色强调的那个数字，就是这个调性下的第几级音：此时调性是 G，左边的孔位是 C，下面突出的数字是 4，C 就是 G 调的四音。</li>
-            <li>每个圆孔下方的三个数字，就对应构成这个级别三和弦的三个音：此时调性是 G，左边的孔位是 C，下面的三个数字是 4-6-1，那么 G 大调的四级和弦 C 和弦，其三和弦就由这里的四音、六音、一音（主音）构成，也就是 C、E、G。</li>
-            <li>整个五度圈分上下部分，上半部分代表着该调性下的大和弦，下半部分则代表着小和弦；位于中间的，则是减七和弦。</li>
-            <li>在背面，是一些经典的基础和弦进行，你可以随意尝试，这只是个凑数的功能。</li>
-          </ol>
-
-          <h3>三、这个界面都怎么操作</h3>
-          <p><b>对于五度圈</b>：你可以长按鼠标左键旋转，圆盘就会旋转。当你单击圆盘上的字母时，会自动播放它的三和弦，你可以选择关闭。</p>
-          <p>同时，你也可以长按正中央的圆点来移动，拖住角落的圆点来缩放。</p>
-          <p><b>对于钢琴窗</b>：你可以单击这个小盒子来展开或收起；同样的，你也可以按住角落来缩放，或者按住这个盒子本身来拖动。</p>
-          <p><b>对于本说明书</b>：你都已经展开来了，你自然应该知道怎么打开。你还可以再单击一次来收起。同样的，你也可以缩放和拖动。</p>
-          <p>如果你要重置，那就点重置就可以了。</p>
-          </div>
-        </div>
-      </div>
-        <div class="paper-ball" id="paper-ball" title="单击展开"></div>
-        <div class="paper-handle paper-nw" data-paper="zoom"></div>
-        <div class="paper-handle paper-ne" data-paper="zoom"></div>
-        <div class="paper-handle paper-sw" data-paper="zoom"></div>
-        <div class="paper-handle paper-se" data-paper="zoom"></div>
-      </div>
-
-    <!-- 机器本体（正面 / 背面 3D 卡片） -->
-    <div class="scene is-resting" id="scene">
-      <!-- 四角：按住拖动 = 等比缩放；中心圆钉：按住拖动 = 整体移动 -->
-      <div class="handle handle-nw" data-drag="zoom"></div>
-      <div class="handle handle-ne" data-drag="zoom"></div>
-      <div class="handle handle-sw" data-drag="zoom"></div>
-      <div class="handle handle-se" data-drag="zoom"></div>
-      <div class="handle handle-move" data-drag="move" title="拖动整体位置"></div>
-
-      <div id="device-card" class="device-card">
-
-          <!-- ================= 24-LAYER 3D PHYSICAL ACRYLIC & GEAR SANDWICH (Z = -24px to +24px, 3x Thicker!) ================= -->
-          <div id="thickness-layers-container" class=" pointer-events-none">
-            <!-- Populated with 24 dense 3D Z-slices by JS for ultra-solid physical block thickness during 3D flip -->
-          </div>
-
-          <!-- ================= FRONT FACE (正面) ================= -->
-          <div class="device-face device-face-front">
-            <svg id="svg-front" viewBox="0 0 600 600" class="w-full h-full select-none">
-              <defs>
-                <!--
-                  Outer Acrylic Plate Shape with Top U-Notch:
-                  At the top center (x=232..368), the yellow plate dips cleanly down to y=114,
-                  leaving generous room below the arch for "KEY 1 - 3 - 5" at y=132 without touching the slot!
-                -->
-                <path id="plate-shape" d="
-                  M 76,37
-                  L 196,37
-                  Q 218,37 232,66
-                  L 248,108
-                  Q 300,120 352,108
-                  L 368,66
-                  Q 382,37 404,37
-                  L 524,37
-                  A 39,39 0 0 1 563,76
-                  L 563,524
-                  A 39,39 0 0 1 524,563
-                  L 76,563
-                  A 39,39 0 0 1 37,524
-                  L 37,76
-                  A 39,39 0 0 1 76,37
-                  Z" />
-
-                <!--
-                  Front Window Cutout Mask (white = opaque plate, black = transparent window holes).
-                -->
-                <mask id="front-plate-mask">
-                  <rect x="0" y="0" width="600" height="600" fill="white" />
-                  <!-- Top Major 1 (KEY) Arched Window / Notch Area (bottom edge raised to y=108..120 so KEY 1-3-5 never touches it) -->
-                  <path d="M 225,35 L 375,35 L 352,108 Q 300,120 248,108 Z" fill="black" />
-                  <!-- Major 4 Window (30° CCW from top: cx=198, cy=123.3) -->
-                  <circle cx="198" cy="123.3" r="34" fill="black" />
-                  <!-- Major 5 Window (30° CW from top: cx=402, cy=123.3) -->
-                  <circle cx="402" cy="123.3" r="34" fill="black" />
-                  <!-- Key Signature Window (y=152..188, giving clean separation below KEY 1-3-5) -->
-                  <path d="M 263,152 Q 300,148 337,152 Q 344,170 335,188 Q 300,185 265,188 Q 256,170 263,152 Z" fill="black" />
-                  <!-- Diminished 7° Window (90° W of top: cx=218, cy=300) -->
-                  <circle cx="218" cy="300" r="24" fill="black" />
-                  <!-- Relative Minor 6 Window (Bottom 180°: cx=300, cy=454) -->
-                  <circle cx="300" cy="454" r="31" fill="black" />
-                  <!-- Minor 3 Window (150° W: cx=223, cy=433.4) -->
-                  <circle cx="223" cy="433.4" r="26.5" fill="black" />
-                  <!-- Minor 2 Window (150° E: cx=377, cy=433.4) -->
-                  <circle cx="377" cy="433.4" r="26.5" fill="black" />
-                </mask>
-
-                <!-- Dedicated Zone Clips so each track ONLY appears in its own window sector -->
-                <clipPath id="clip-ring-major">
-                  <rect x="40" y="30" width="520" height="250" />
-                </clipPath>
-                <clipPath id="clip-ring-minor">
-                  <rect x="130" y="340" width="340" height="200" />
-                </clipPath>
-                <clipPath id="clip-ring-sig">
-                  <path d="M 252,146 Q 300,142 348,146 L 348,194 Q 300,190 252,194 Z" />
-                </clipPath>
-                <clipPath id="clip-ring-dim">
-                  <circle cx="218" cy="300" r="32" />
-                </clipPath>
-
-                <clipPath id="plate-clip">
-                  <use href="#plate-shape" />
-                </clipPath>
-
-                <!-- Metallic Screw Gradient -->
-                <radialGradient id="screw-grad" cx="35%" cy="35%" r="65%">
-                  <stop offset="0%" stop-color="#ffffff" />
-                  <stop offset="45%" stop-color="#cbd5e1" />
-                  <stop offset="85%" stop-color="#64748b" />
-                  <stop offset="100%" stop-color="#334155" />
-                </radialGradient>
-
-                <!-- Drop Shadow for Window Recesses -->
-                <filter id="window-inset" x="-20%" y="-20%" width="140%" height="140%">
-                  <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000000" flood-opacity="0.65" />
-                </filter>
-
-                <!-- Center Rivet Metallic Gradient -->
-                <radialGradient id="rivet-grad" cx="32%" cy="30%" r="68%">
-                  <stop offset="0%" stop-color="#ffffff" />
-                  <stop offset="30%" stop-color="#e2e8f0" />
-                  <stop offset="70%" stop-color="#94a3b8" />
-                  <stop offset="100%" stop-color="#475569" />
-                </radialGradient>
-              </defs>
-
-              <!-- 1. Base Clear Acrylic Casing Border -->
-              <use href="#plate-shape" fill="#18181b" stroke="rgba(255,255,255,0.28)" stroke-width="8" />
-
-              <!-- 2. ROTATING BLACK TURBINE GEAR WHEEL (Bottom Layer) -->
-              <g id="wheel-front-group" class="wheel-grab">
-                <g id="wheel-front-gear-rot" transform="rotate(0 300 300)">
-                  <path id="wheel-gear-front" fill="#1b1c20" stroke="#2e3038" stroke-width="2" />
-                </g>
-
-                <!-- Track 1: Major Chords Ring (r=210) -->
-                <g clip-path="url(#clip-ring-major)">
-                  <g id="wheel-front-majors" transform="rotate(0 300 300)"></g>
-                </g>
-
-                <!-- Track 2: Minor Chords Ring (r=154) -->
-                <g clip-path="url(#clip-ring-minor)">
-                  <g id="wheel-front-minors" transform="rotate(0 300 300)"></g>
-                </g>
-
-                <!-- Track 3: Key Signatures Ring (r=130, y=170) -->
-                <g clip-path="url(#clip-ring-sig)">
-                  <g id="wheel-front-sigs" transform="rotate(0 300 300)"></g>
-                </g>
-
-                <!-- Track 4: Diminished 7° Ring (r=82) -->
-                <g clip-path="url(#clip-ring-dim)">
-                  <g id="wheel-front-dims" transform="rotate(0 300 300)"></g><g id="wheel-front-items"></g>
-                </g>
-              </g>
-
-              <!-- 3. FRONT COLORED ACRYLIC PLATE WITH CUTOUT WINDOWS -->
-              <g id="front-plate-layer">
-                <use id="front-plate-fill" href="#plate-shape" fill="#eab308" mask="url(#front-plate-mask)" opacity="0.91" />
-              </g>
-
-              <!-- 4. WINDOW BEVEL RINGS & CONNECTING ARCS (Screen-printed on Top Plate ONLY - Masked so arcs NEVER cross over window slots!) -->
-              <g pointer-events="none">
-                <!-- Outer border highlight -->
-                <use href="#plate-shape" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="2" />
-
-                <g mask="url(#front-plate-mask)">
-                  <!-- Connecting circular arc for Major Chords (r=204) -->
-                  <path d="M 139,174.8 A 204,204 0 0 1 461,174.8" fill="none" stroke="#18181b" stroke-width="2.2" />
-                  <!-- Diminished 7° indicator arc (r=82) -->
-                  <path d="M 231,246 A 82,82 0 0 0 231,354" fill="none" stroke="#18181b" stroke-width="2" />
-                  <!-- Minor Chords indicator arc (r=154) -->
-                  <path d="M 192,409 A 154,154 0 0 0 408,409" fill="none" stroke="#18181b" stroke-width="2" />
-                  <!-- Ghost Circles (4th & 5th neighbors visible through translucent plate) -->
-                  <g id="ghost-neighbors" opacity="0.38">
-                    <circle cx="123.3" cy="198" r="28" fill="#18181b" />
-                    <circle cx="476.7" cy="198" r="28" fill="#18181b" />
-                  </g>
-                </g>
-
-                <!-- Cutout Window Dark Borders -->
-                <path d="M 232,66 L 248,108 Q 300,120 352,108 L 368,66" fill="none" stroke="#18181b" stroke-width="3" />
-                <circle cx="198" cy="123.3" r="34" fill="none" stroke="#18181b" stroke-width="3.5" />
-                <circle cx="402" cy="123.3" r="34" fill="none" stroke="#18181b" stroke-width="3.5" />
-                <path d="M 263,152 Q 300,148 337,152 Q 344,170 335,188 Q 300,185 265,188 Q 256,170 263,152 Z" fill="none" stroke="#18181b" stroke-width="2.5" />
-
-                <!-- Diminished 7° Window Rim & small degree badge -->
-                <circle cx="218" cy="300" r="24" fill="none" stroke="#18181b" stroke-width="3.5" />
-                <circle cx="238" cy="280" r="6.5" fill="#18181b" />
-                <circle cx="238" cy="280" r="3.2" fill="none" stroke="#eab308" class="plate-accent-stroke" stroke-width="1.6" />
-
-                <!-- Minor Chords Window Rims -->
-                <circle cx="223" cy="433.4" r="26.5" fill="none" stroke="#18181b" stroke-width="3.5" />
-                <circle cx="300" cy="454" r="31" fill="none" stroke="#18181b" stroke-width="3.5" />
-                <circle cx="377" cy="433.4" r="26.5" fill="none" stroke="#18181b" stroke-width="3.5" />
-
-                <!-- Small "m" badges attached to the bottom-right of each minor window -->
-                <circle cx="249" cy="445" r="9.5" fill="#18181b" />
-                <text x="249" y="448.5" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">m</text>
-                <circle cx="332" cy="461" r="10" fill="#18181b" />
-                <text x="332" y="464.5" text-anchor="middle" fill="#ffffff" font-size="11.5" font-weight="700">m</text>
-                <circle cx="403" cy="422" r="9.5" fill="#18181b" />
-                <text x="403" y="425.5" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="700">m</text>
-              </g>
-
-              <!-- 5. SCREEN-PRINTED GRAPHICS, QUICK-CHORD FORMULAS & TYPOGRAPHY (Cleanly spaced, no overlaps!) -->
-              <g pointer-events="none" fill="#18181b">
-                <!-- KEY 1 - 3 - 5 cleanly positioned at y=133 in the yellow band between the Top Notch (y=114) and Signature Window (y=150) -->
-                <text x="263" y="137" text-anchor="middle" font-size="12.5" font-weight="800" letter-spacing="0.5">KEY</text>
-                <circle cx="293" cy="133" r="9.5" fill="#18181b" />
-                <text x="293" y="137.2" text-anchor="middle" fill="#eab308" class="plate-accent-fill" font-size="12.5" font-weight="900">1</text>
-                <line x1="302.5" y1="133" x2="310" y2="133" stroke="#18181b" stroke-width="1.5" />
-                <circle cx="316" cy="133" r="5.8" fill="none" stroke="#18181b" stroke-width="1.4" />
-                <text x="316" y="136.2" text-anchor="middle" font-size="8.8" font-weight="700">3</text>
-                <line x1="321.8" y1="133" x2="328" y2="133" stroke="#18181b" stroke-width="1.5" />
-                <circle cx="334" cy="133" r="5.8" fill="none" stroke="#18181b" stroke-width="1.4" />
-                <text x="334" y="136.2" text-anchor="middle" font-size="8.8" font-weight="700">5</text>
-
-                <!-- "Signature" label placed cleanly BELOW the Signature Window (at y=206), replacing the cluttered BEADGCF arrows as requested! -->
-                <text x="300" y="206" text-anchor="middle" font-size="11.5" font-weight="800" letter-spacing="0.6">Signature</text>
-
-                <!-- IV Chord Quick-Chord Formula: 4 - 6 - 1 -->
-                <circle cx="195" cy="171" r="8.5" fill="#18181b" />
-                <text x="195" y="174.5" text-anchor="middle" fill="#eab308" class="plate-accent-fill" font-size="11" font-weight="900">4</text>
-                <line x1="203.5" y1="171" x2="209.5" y2="171" stroke="#18181b" stroke-width="1.3" />
-                <circle cx="215" cy="171" r="5.5" fill="none" stroke="#18181b" stroke-width="1.3" />
-                <text x="215" y="174" text-anchor="middle" font-size="8.5" font-weight="700">6</text>
-                <line x1="220.5" y1="171" x2="226.5" y2="171" stroke="#18181b" stroke-width="1.3" />
-                <circle cx="232" cy="171" r="5.5" fill="none" stroke="#18181b" stroke-width="1.3" />
-                <text x="232" y="174" text-anchor="middle" font-size="8.5" font-weight="700">1</text>
-
-                <!-- V Chord Quick-Chord Formula: 5 - 7 - 2 -->
-                <circle cx="385" cy="171" r="8.5" fill="#18181b" />
-                <text x="385" y="174.5" text-anchor="middle" fill="#eab308" class="plate-accent-fill" font-size="11" font-weight="900">5</text>
-                <line x1="393.5" y1="171" x2="399.5" y2="171" stroke="#18181b" stroke-width="1.3" />
-                <circle cx="405" cy="171" r="5.5" fill="none" stroke="#18181b" stroke-width="1.3" />
-                <text x="405" y="174" text-anchor="middle" font-size="8.5" font-weight="700">7</text>
-                <line x1="410.5" y1="171" x2="416.5" y2="171" stroke="#18181b" stroke-width="1.3" />
-                <circle cx="422" cy="171" r="5.5" fill="none" stroke="#18181b" stroke-width="1.3" />
-                <text x="422" y="174" text-anchor="middle" font-size="8.5" font-weight="700">2</text>
-
-                <!-- Horizontal Dashed Divider Line (MAJOR / minor boundary) -->
-                <line x1="78" y1="300" x2="188" y2="300" stroke="#18181b" stroke-width="2" stroke-dasharray="4 6" />
-                <line x1="270" y1="300" x2="285" y2="300" stroke="#18181b" stroke-width="2" stroke-dasharray="4 5" />
-                <line x1="316" y1="300" x2="522" y2="300" stroke="#18181b" stroke-width="2" stroke-dasharray="4 6" />
-
-                <!-- Vertical Center Arrows pointing up to Major & down to Minor -->
-                <line x1="300" y1="282" x2="300" y2="230" stroke="#18181b" stroke-width="1.8" />
-                <path d="M 295,236 L 300,229 L 305,236" fill="none" stroke="#18181b" stroke-width="1.8" />
-                <line x1="300" y1="318" x2="300" y2="375" stroke="#18181b" stroke-width="1.8" />
-                <path d="M 295,369 L 300,376 L 305,369" fill="none" stroke="#18181b" stroke-width="1.8" />
-
-                <!-- MAJOR chords / minor chords labels -->
-                <text x="318" y="268" font-size="23" font-weight="900" letter-spacing="0.5">MAJOR</text>
-                <text x="318" y="281" font-size="11.5" font-weight="600">chords</text>
-                <text x="318" y="336" font-size="23" font-weight="900" letter-spacing="0.3">minor</text>
-                <text x="318" y="349" font-size="11.5" font-weight="600">chords</text>
-
-                <!-- dim. label & vii° Quick-Chord Formula: 7 - 2 - 4 -->
-                <text x="247" y="304" font-size="12" font-weight="800">dim.</text>
-                <circle cx="218" cy="336" r="8.5" fill="#18181b" />
-                <text x="218" y="339.5" text-anchor="middle" fill="#eab308" class="plate-accent-fill" font-size="11" font-weight="900">7</text>
-                <line x1="226.5" y1="336" x2="232.5" y2="336" stroke="#18181b" stroke-width="1.3" />
-                <circle cx="238" cy="336" r="5.5" fill="none" stroke="#18181b" stroke-width="1.3" />
-                <text x="238" y="339" text-anchor="middle" font-size="8.5" font-weight="700">2</text>
-                <line x1="243.5" y1="336" x2="249.5" y2="336" stroke="#18181b" stroke-width="1.3" />
-                <circle cx="255" cy="336" r="5.5" fill="none" stroke="#18181b" stroke-width="1.3" />
-                <text x="255" y="339" text-anchor="middle" font-size="8.5" font-weight="700">4</text>
-
-                <!-- Curved "relative minor" label over bottom center window -->
-                <path id="rel-minor-arc" d="M 264,427 A 42,42 0 0 1 336,427" fill="none" />
-                <text font-size="10.5" font-weight="700" letter-spacing="0.4">
-                  <textPath href="#rel-minor-arc" startOffset="50%" text-anchor="middle">relative minor</textPath>
-                </text>
-
-                <!-- iii minor Quick-Chord Formula: 3 - 5 - 7 -->
-                <circle cx="212" cy="472" r="8.5" fill="#18181b" />
-                <text x="212" y="475.5" text-anchor="middle" fill="#eab308" class="plate-accent-fill" font-size="11" font-weight="900">3</text>
-                <line x1="220.5" y1="472" x2="226.5" y2="472" stroke="#18181b" stroke-width="1.3" />
-                <circle cx="232" cy="472" r="5.5" fill="none" stroke="#18181b" stroke-width="1.3" />
-                <text x="232" y="475" text-anchor="middle" font-size="8.5" font-weight="700">5</text>
-                <line x1="237.5" y1="472" x2="243.5" y2="472" stroke="#18181b" stroke-width="1.3" />
-                <circle cx="249" cy="472" r="5.5" fill="none" stroke="#18181b" stroke-width="1.3" />
-                <text x="249" y="475" text-anchor="middle" font-size="8.5" font-weight="700">7</text>
-
-                <!-- vi relative minor Quick-Chord Formula: 6 - 1 - 3 -->
-                <circle cx="292" cy="498" r="8.5" fill="#18181b" />
-                <text x="292" y="501.5" text-anchor="middle" fill="#eab308" class="plate-accent-fill" font-size="11" font-weight="900">6</text>
-                <line x1="300.5" y1="498" x2="306.5" y2="498" stroke="#18181b" stroke-width="1.3" />
-                <circle cx="312" cy="498" r="5.5" fill="none" stroke="#18181b" stroke-width="1.3" />
-                <text x="312" y="501" text-anchor="middle" font-size="8.5" font-weight="700">1</text>
-                <line x1="317.5" y1="498" x2="323.5" y2="498" stroke="#18181b" stroke-width="1.3" />
-                <circle cx="329" cy="498" r="5.5" fill="none" stroke="#18181b" stroke-width="1.3" />
-                <text x="329" y="501" text-anchor="middle" font-size="8.5" font-weight="700">3</text>
-
-                <!-- ii minor Quick-Chord Formula: 2 - 4 - 6 -->
-                <circle cx="366" cy="472" r="8.5" fill="#18181b" />
-                <text x="366" y="475.5" text-anchor="middle" fill="#eab308" class="plate-accent-fill" font-size="11" font-weight="900">2</text>
-                <line x1="374.5" y1="472" x2="380.5" y2="472" stroke="#18181b" stroke-width="1.3" />
-                <circle cx="386" cy="472" r="5.5" fill="none" stroke="#18181b" stroke-width="1.3" />
-                <text x="386" y="475" text-anchor="middle" font-size="8.5" font-weight="700">4</text>
-                <line x1="391.5" y1="472" x2="397.5" y2="472" stroke="#18181b" stroke-width="1.3" />
-                <circle cx="403" cy="472" r="5.5" fill="none" stroke="#18181b" stroke-width="1.3" />
-                <text x="403" y="475" text-anchor="middle" font-size="8.5" font-weight="700">6</text>
-
-                <!-- Bottom-left Product Branding: Decoder / Circle of Fifths -->
-                <text x="90" y="510" font-size="23" font-weight="800" letter-spacing="0.4">Decoder</text>
-                <text x="90" y="528" font-size="13.5" font-weight="500" letter-spacing="0.2">Circle of Fifths</text>
-              </g>
-
-              <!-- 6. HARDWARE DETAILS: Center Metallic Rivet & 4 Corner Hex Bolts -->
-              <g pointer-events="none">
-                <circle cx="300" cy="300" r="11" fill="url(#rivet-grad)" stroke="#1e293b" stroke-width="1.5" />
-                <ellipse cx="297" cy="297" rx="4" ry="2.5" fill="#ffffff" opacity="0.65" />
-
-                <g transform="translate(64,64)">
-                  <circle r="7" fill="url(#screw-grad)" stroke="#334155" stroke-width="1" />
-                  <circle r="3" fill="#475569" />
-                </g>
-                <g transform="translate(536,64)">
-                  <circle r="7" fill="url(#screw-grad)" stroke="#334155" stroke-width="1" />
-                  <circle r="3" fill="#475569" />
-                </g>
-                <g transform="translate(64,536)">
-                  <circle r="7" fill="url(#screw-grad)" stroke="#334155" stroke-width="1" />
-                  <circle r="3" fill="#475569" />
-                </g>
-                <g transform="translate(536,536)">
-                  <circle r="7" fill="url(#screw-grad)" stroke="#334155" stroke-width="1" />
-                  <circle r="3" fill="#475569" />
-                </g>
-              </g>
-
-              <!-- 7. INTERACTIVE CLICK HOTSPOTS FOR THE 7 DIATONIC CHORD WINDOWS (Play Audio & Inspect Triad) -->
-              <g id="window-hotspots">
-                <path data-degree="1" class="chord-hotspot" d="M 232,52 Q 300,42 368,52 L 352,108 Q 300,120 248,108 Z" fill="transparent" />
-                <circle data-degree="4" class="chord-hotspot" cx="198" cy="123.3" r="34" fill="transparent" />
-                <circle data-degree="5" class="chord-hotspot" cx="402" cy="123.3" r="34" fill="transparent" />
-                <circle data-degree="7" class="chord-hotspot" cx="218" cy="300" r="24" fill="transparent" />
-                <circle data-degree="3" class="chord-hotspot" cx="223" cy="433.4" r="26.5" fill="transparent" />
-                <circle data-degree="6" class="chord-hotspot" cx="300" cy="454" r="31" fill="transparent" />
-                <circle data-degree="2" class="chord-hotspot" cx="377" cy="433.4" r="26.5" fill="transparent" />
-              </g>
-            </svg>
-          </div>
-
-          <!-- ================= BACK FACE (背面 - 极简干净版 + 严格限宽不越界的 4和弦直接对应) ================= -->
-          <div class="device-face device-face-back">
-            <svg id="svg-back" viewBox="0 0 600 600" class="w-full h-full select-none">
-              <defs>
-                <mask id="back-plate-mask">
-                  <rect x="0" y="0" width="600" height="600" fill="white" />
-                  <rect x="324" y="162" width="182" height="44" rx="10" fill="black" />
-                </mask>
-
-                <clipPath id="back-plate-clip">
-                  <use href="#plate-shape" />
-                </clipPath>
-
-                <clipPath id="back-prog-window-clip">
-                  <rect x="324" y="162" width="182" height="44" rx="10" />
-                </clipPath>
-
-                <!-- Strict clip region for the right-side text column (x=318..512) so "Key of X: ..." NEVER overflows onto the left gear! -->
-                <clipPath id="back-text-col-clip">
-                  <rect x="318" y="210" width="196" height="42" />
-                </clipPath>
-              </defs>
-
-              <!-- 1. Base Casing Border -->
-              <use href="#plate-shape" fill="#18181b" stroke="rgba(255,255,255,0.28)" stroke-width="8" />
-
-              <!-- 2. ROTATING BLACK GEAR WHEEL -->
-              <g id="wheel-back-group" class="wheel-grab" transform="rotate(0 300 300)">
-                <path id="wheel-gear-back" fill="#1b1c20" stroke="#2e3038" stroke-width="2" />
-              </g>
-
-              <!-- 3. Back Colored Plate -->
-              <use id="back-plate-fill" href="#plate-shape" fill="#eab308" mask="url(#back-plate-mask)" opacity="0.92" />
-
-              <!-- 4. Back Graphic Block & Rotating Chord Progression Window -->
-              <g clip-path="url(#back-plate-clip)">
-                <!-- Large dark horizontal panel on the right & center -->
-                <path d="
-                  M 225,132
-                  L 560,132
-                  L 560,308
-                  L 225,308
-                  A 95,95 0 0 1 225,132
-                  Z
-                  M 334,162
-                  L 496,162
-                  A 10,10 0 0 1 506,172
-                  L 506,196
-                  A 10,10 0 0 1 496,206
-                  L 334,206
-                  A 10,10 0 0 1 324,196
-                  L 324,172
-                  A 10,10 0 0 1 334,162
-                  Z" fill="#18181b" fill-rule="evenodd" />
-
-                <!-- Rotating Scalloped Wheel Edge on left side of the dark block -->
-                <g id="wheel-back-cutout-gear" class="wheel-grab" transform="rotate(0 225 220)">
-                  <path id="wheel-gear-back-inner" fill="#141518" stroke="#eab308" stroke-width="1.5" stroke-opacity="0.35" />
-                </g>
-
-                <!-- THE REAL ROTATING CHORD PROGRESSIONS WINDOW -->
-                <g clip-path="url(#back-prog-window-clip)" class="wheel-grab">
-                  <rect x="324" y="162" width="182" height="44" rx="10" fill="#101115" />
-                  <g id="wheel-back-progs-rot" transform="rotate(0 300 300)"><g id="back-prog-pills"></g></g>
-                  <rect x="324" y="162" width="182" height="44" rx="10" fill="none" stroke="#3f3f46" stroke-width="2" />
-                </g>
-
-                <!-- Back Instructional Text ("示例Example" + "Chord Progressions" + Strict-Width 4-Chord Key Output) -->
-                <g pointer-events="none">
-                  <text x="235" y="232" text-anchor="middle" fill="#eab308" class="plate-accent-fill" font-size="13.5" font-weight="700">示例Example</text>
-                  <line x1="192" y1="240" x2="284" y2="240" stroke="#eab308" class="plate-accent-stroke" stroke-width="1.8" />
-                  <polygon points="282,237 289,240 282,243" fill="#eab308" class="plate-accent-fill" />
-
-                  <text x="415" y="154" text-anchor="middle" fill="#eab308" class="plate-accent-fill" font-size="15.5" font-weight="800">Chord Progressions</text>
-
-                  <g id="back-example-deg-pills" display="none"></g>
-
-                  <!-- Direct 4-Chord Key result strictly bounded within x=326..504 (max width 176px) so even 4-5-3-6 in F# (B -> C# -> A#m -> D#m) never touches the left gear! -->
-                  <g clip-path="url(#back-text-col-clip)">
-                    <text id="back-live-key-example" x="415" y="235" text-anchor="middle" font-size="11.5" font-weight="800">
-                      <!-- Populated by JS with auto-scaling font & compact arrows -->
-                    </text>
-                  </g>
-
-                  <line x1="326" y1="254" x2="504" y2="254" stroke="#52525b" stroke-width="1" />
-                  <text x="415" y="272" text-anchor="middle" fill="#eab308" class="plate-accent-fill" font-size="10.5" font-weight="600">使用五度圈在任意键位上演奏这些和弦</text>
-                  <text x="415" y="286" text-anchor="middle" fill="#eab308" class="plate-accent-fill" font-size="8.5" font-weight="500">Play these chords on any key position using</text>
-                  <text x="415" y="297" text-anchor="middle" fill="#eab308" class="plate-accent-fill" font-size="8.5" font-weight="500">a five degree circle</text>
-                </g>
-
-                <!-- Clean Back Bottom -->
-                <g pointer-events="none" fill="#18181b">
-                  <text x="360" y="500" font-size="18.5" font-weight="800" letter-spacing="0.2">Make Some Noise!</text>
-                </g>
-              </g>
-
-              <!-- Center Rivet & 4 Corner Screws on Back -->
-              <g pointer-events="none">
-                <circle cx="300" cy="300" r="9.5" fill="url(#rivet-grad)" stroke="#1e293b" stroke-width="1.5" />
-                <circle cx="64" cy="64" r="6.5" fill="url(#screw-grad)" />
-                <circle cx="536" cy="64" r="6.5" fill="url(#screw-grad)" />
-                <circle cx="64" cy="536" r="6.5" fill="url(#screw-grad)" />
-                <circle cx="536" cy="536" r="6.5" fill="url(#screw-grad)" />
-              </g>
-            </svg>
-          </div>
-
-        </div>
-
-      </div>
-
-  </main>
-
-  <section class="roll-piano is-folded" id="roll-piano" aria-label="手卷钢琴">
-    <!-- 硅胶软垫：收卷时向左缩进圆筒 -->
-    <div class="piano-mat" id="piano-body">
-      <div class="piano-roll" aria-label="三组八度键盘，当前主音以金色高亮">
-        <div class="piano-white-keys" id="piano-white-keys"></div>
-        <div class="piano-black-keys" id="piano-black-keys"></div>
-      </div>
-      <div class="piano-cylinder" aria-hidden="true"></div>
-    </div>
-
-    <!-- 右端控制盒：抓这里拖动整台琴 -->
-    <div class="piano-box" id="piano-box" title="按住拖动整台琴">
-      <span class="piano-display">KEY<b id="piano-root-label">G</b></span>
-
-      <span class="piano-led" aria-hidden="true"></span>
-      <span class="piano-speaker" aria-hidden="true"></span>
-    </div>
-
-
-  </section>
-
-  <script>
-    /********************************************************************
-     * 1. EXACT CIRCLE OF FIFTHS DATA (12 Keys Clockwise from Top = 0°)
-     ********************************************************************/
-    const WHEEL_KEYS = [
-      {
-        index: 0,
-        major: "C",
-        majorDisplay: "C",
-        minor: "a",
-        dim: "b",
-        sigText: "NATURAL",
-        sigDesc: "无升降号 (Natural)",
-        scale: ["C", "D", "E", "F", "G", "A", "B"],
-        semitones: [0, 2, 4, 5, 7, 9, 11],
-        backProg: [1, 4, 5, 1],
-        backProgDesc: "经典民谣/摇滚进行 (I-IV-V-I)"
-      },
-      {
-        index: 1,
-        major: "G",
-        majorDisplay: "G",
-        minor: "e",
-        dim: "f#",
-        sigText: "#F",
-        sigDesc: "1个升号 (#F)",
-        scale: ["G", "A", "B", "C", "D", "E", "F#"],
-        semitones: [7, 9, 11, 0, 2, 4, 6],
-        backProg: [1, 7, 6, 5],
-        backProgDesc: "背面图示顺阶下行进行 (1→7→6→5)"
-      },
-      {
-        index: 2,
-        major: "D",
-        majorDisplay: "D",
-        minor: "b",
-        dim: "c#",
-        sigText: "#FC",
-        sigDesc: "2个升号 (#F, #C)",
-        scale: ["D", "E", "F#", "G", "A", "B", "C#"],
-        semitones: [2, 4, 6, 7, 9, 11, 1],
-        backProg: [1, 5, 6, 4],
-        backProgDesc: "流行金曲万能四和弦 (1→5→6→4)"
-      },
-      {
-        index: 3,
-        major: "A",
-        majorDisplay: "A",
-        minor: "f#",
-        dim: "g#",
-        sigText: "#FCG",
-        sigDesc: "3个升号 (#F, #C, #G)",
-        scale: ["A", "B", "C#", "D", "E", "F#", "G#"],
-        semitones: [9, 11, 1, 2, 4, 6, 8],
-        backProg: [2, 5, 1, 6],
-        backProgDesc: "经典爵士律动循环 (2→5→1→6)"
-      },
-      {
-        index: 4,
-        major: "E",
-        majorDisplay: "E",
-        minor: "c#",
-        dim: "d#",
-        sigText: "#FCGD",
-        sigDesc: "4个升号 (#F, #C, #G, #D)",
-        scale: ["E", "F#", "G#", "A", "B", "C#", "D#"],
-        semitones: [4, 6, 8, 9, 11, 1, 3],
-        backProg: [1, 6, 4, 5],
-        backProgDesc: "复古五零年代进行 (1→6→4→5)"
-      },
-      {
-        index: 5,
-        major: "B",
-        majorDisplay: "B",
-        minor: "g#",
-        dim: "a#",
-        sigText: "#FCGDA",
-        sigDesc: "5个升号 (#F, #C, #G, #D, #A)",
-        scale: ["B", "C#", "D#", "E", "F#", "G#", "A#"],
-        semitones: [11, 1, 3, 4, 6, 8, 10],
-        backProg: [6, 4, 1, 5],
-        backProgDesc: "现代流行小调感进行 (6→4→1→5)"
-      },
-      {
-        index: 6,
-        major: "F#",
-        majorDisplay: "F#",
-        minor: "d#",
-        dim: "e#",
-        sigText: "#FCGDAE",
-        sigDesc: "6个升号 (#F, #C, #G, #D, #A, #E)",
-        scale: ["F#", "G#", "A#", "B", "C#", "D#", "E#"],
-        semitones: [6, 8, 10, 11, 1, 3, 5],
-        backProg: [4, 5, 3, 6],
-        backProgDesc: "日系王道抒情进行 (4→5→3→6)"
-      },
-      {
-        index: 7,
-        major: "Db",
-        majorDisplay: "Db",
-        minor: "bb",
-        dim: "c",
-        sigText: "bBEADG",
-        sigDesc: "5个降号 (bB, bE, bA, bD, bG)",
-        scale: ["Db", "Eb", "F", "Gb", "Ab", "Bb", "C"],
-        semitones: [1, 3, 5, 6, 8, 10, 0],
-        backProg: [1, 4, 6, 5],
-        backProgDesc: "明亮颂歌流行进行 (1→4→6→5)"
-      },
-      {
-        index: 8,
-        major: "Ab",
-        majorDisplay: "Ab",
-        minor: "f",
-        dim: "g",
-        sigText: "bBEAD",
-        sigDesc: "4个降号 (bB, bE, bA, bD)",
-        scale: ["Ab", "Bb", "C", "Db", "Eb", "F", "G"],
-        semitones: [8, 10, 0, 1, 3, 5, 7],
-        backProg: [1, 3, 4, 5],
-        backProgDesc: "经典递进上行进行 (1→3→4→5)"
-      },
-      {
-        index: 9,
-        major: "Eb",
-        majorDisplay: "Eb",
-        minor: "c",
-        dim: "d",
-        sigText: "bBEA",
-        sigDesc: "3个降号 (bB, bE, bA)",
-        scale: ["Eb", "F", "G", "Ab", "Bb", "C", "D"],
-        semitones: [3, 5, 7, 8, 10, 0, 2],
-        backProg: [6, 5, 4, 5],
-        backProgDesc: "摇滚律动小调循环 (6→5→4→5)"
-      },
-      {
-        index: 10,
-        major: "Bb",
-        majorDisplay: "Bb",
-        minor: "g",
-        dim: "a",
-        sigText: "bBE",
-        sigDesc: "2个降号 (bB, bE)",
-        scale: ["Bb", "C", "D", "Eb", "F", "G", "A"],
-        semitones: [10, 0, 2, 3, 5, 7, 9],
-        backProg: [1, 2, 4, 5],
-        backProgDesc: "轻快民谣上行进行 (1→2→4→5)"
-      },
-      {
-        index: 11,
-        major: "F",
-        majorDisplay: "F",
-        minor: "d",
-        dim: "e",
-        sigText: "bB",
-        sigDesc: "1个降号 (bB)",
-        scale: ["F", "G", "A", "Bb", "C", "D", "E"],
-        semitones: [5, 7, 9, 10, 0, 2, 4],
-        backProg: [1, 6, 2, 5],
-        backProgDesc: "百老汇/爵士标准循环 (1→6→2→5)"
-      }
-    ];
-
-    const DEGREE_META = {
-      1: { roman: "Ⅰ", role: "Ⅰ级 主和弦 (Tonic Major)", formula: [1, 3, 5], formulaText: "➊ - ③ - ⑤", quality: "major", suffix: "", intervalDesc: "根音 + 大三度(4半音) + 纯五度(7半音)" },
-      2: { roman: "ⅱm", role: "ⅱ级 上主小和弦 (Supertonic Minor)", formula: [2, 4, 6], formulaText: "➋ - ④ - ⑥", quality: "minor", suffix: "m", intervalDesc: "根音 + 小三度(3半音) + 纯五度(7半音)" },
-      3: { roman: "ⅲm", role: "ⅲ级 中音小和弦 (Mediant Minor)", formula: [3, 5, 7], formulaText: "➌ - ⑤ - ⑦", quality: "minor", suffix: "m", intervalDesc: "根音 + 小三度(3半音) + 纯五度(7半音)" },
-      4: { roman: "Ⅳ", role: "Ⅳ级 下属大三和弦 (Subdominant Major)", formula: [4, 6, 1], formulaText: "➍ - ⑥ - ①", quality: "major", suffix: "", intervalDesc: "根音 + 大三度(4半音) + 纯五度(7半音)" },
-      5: { roman: "Ⅴ", role: "Ⅴ级 属大三和弦 (Dominant Major)", formula: [5, 7, 2], formulaText: "➎ - ⑦ - ②", quality: "major", suffix: "", intervalDesc: "根音 + 大三度(4半音) + 纯五度(7半音)" },
-      6: { roman: "ⅵm", role: "ⅵ级 关系小调主和弦 (Relative Minor)", formula: [6, 1, 3], formulaText: "➏ - ① - ③", quality: "minor", suffix: "m", intervalDesc: "根音 + 小三度(3半音) + 纯五度(7半音)" },
-      7: { roman: "ⅶ°", role: "ⅶ°级 导音减和弦 (Leading-Tone Dim)", formula: [7, 2, 4], formulaText: "➐ - ② - ④", quality: "dim", suffix: "°", intervalDesc: "根音 + 小三度(3半音) + 减五度(6半音)" }
-    };
-
-    const COLOR_THEMES = {
-      yellow: { plate: "#eab308", rim: "#ca8a04", accent: "#eab308" },
-      red:    { plate: "#dc2626", rim: "#991b1b", accent: "#fca5a5" },
-      green:  { plate: "#2e9e44", rim: "#166534", accent: "#86efac" },
-      gray:   { plate: "#575761", rim: "#3f3f46", accent: "#e4e4e7" }
-    };
-
-    /********************************************************************
-     * 2. STATE MANAGEMENT
-     ********************************************************************/
-    let state = {
-      keyIndex: 1,           // 默认 G（与实体产品图示一致）
-      wheelAngle: -30,       // 第 i 个调转到正上方时 = -i * 30
-      selectedDegree: 1,     // 最近一次点击/弹奏的级数，换调时用它试听
-      xrayTranslucent: true, // 磨砂透视
-      isFlipped: false,
-      colorTheme: "yellow",
-      audioEnabled: true
-    };
-
-    /********************************************************************
-     * 3. WEB AUDIO API POLYPHONIC SYNTHESIZER
-     ********************************************************************/
-    let audioCtx = null;
-    function getAudioCtx() {
-      if (!audioCtx) {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        audioCtx = new AudioContext();
-      }
-      if (audioCtx.state === "suspended") {
-        audioCtx.resume();
-      }
-      return audioCtx;
-    }
-
-    function midiToFreq(midi) {
-      return 440 * Math.pow(2, (midi - 69) / 12);
-    }
-
-    // ---- 钢琴音色：加法合成 + 琴槌噪声 + 随音高变化的衰减 ----
-    let pianoMaster = null;
-    let hammerBuffer = null;
-
-    function getPianoMaster(ctx) {
-      if (!pianoMaster || pianoMaster._ctx !== ctx) {
-        const comp = ctx.createDynamicsCompressor();
-        comp.threshold.value = -20;
-        comp.knee.value = 26;
-        comp.ratio.value = 3.2;
-        comp.attack.value = 0.004;
-        comp.release.value = 0.22;
-        const out = ctx.createGain();
-        out.gain.value = 0.95;
-        comp.connect(out);
-        out.connect(ctx.destination);
-        comp._ctx = ctx;
-        pianoMaster = comp;
-      }
-      return pianoMaster;
-    }
-
-    // 琴槌那一下的噪声（一次生成，反复用）
-    function getHammerBuffer(ctx) {
-      if (!hammerBuffer || hammerBuffer.sampleRate !== ctx.sampleRate) {
-        const len = Math.floor(ctx.sampleRate * 0.05);
-        const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-        const data = buf.getChannelData(0);
-        for (let i = 0; i < len; i += 1) {
-          data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 7);
-        }
-        hammerBuffer = buf;
-      }
-      return hammerBuffer;
-    }
-
-    /**
-     * 弹一个音。
-     * 1）8 个谐波按 1/n^1.25 衰减，高次谐波衰减更快、并带轻微非谐性；
-     * 2）一个随时间关闭的低通模拟钢琴"音头亮、尾巴暗"；
-     * 3）一小段带通噪声当作琴槌敲击；
-     * 4）低音更长、高音更短。
-     */
-    function playSingleNote(midi, delay = 0, duration = 1.1, gainLevel = 0.24) {
-      if (!state.audioEnabled) return;
-      try {
-        const ctx = getAudioCtx();
-        const master = getPianoMaster(ctx);
-        const now = ctx.currentTime + delay;
-        const hz = midiToFreq(midi);
-
-        // 尾音长度：低音更久，高音更短
-        const body = duration * (midi < 48 ? 1.55 : midi < 60 ? 1.15 : 1) * (midi > 72 ? 0.72 : 1);
-
-        // 音色整体：音头亮，随后迅速变暗
-        const tone = ctx.createBiquadFilter();
-        tone.type = "lowpass";
-        tone.Q.value = 0.55;
-        tone.frequency.setValueAtTime(Math.min(11000, hz * 10 + 1600), now);
-        tone.frequency.exponentialRampToValueAtTime(Math.max(650, hz * 2.1), now + body * 0.85);
-        tone.connect(master);
-
-        const B = 0.00034;   // 琴弦非谐性
-        const count = Math.max(3, Math.min(12, Math.round(9500 / hz)));
-
-        for (let i = 0; i < count; i += 1) {
-          const h = i + 1;
-          const osc = ctx.createOscillator();
-          osc.type = "sine";
-          osc.frequency.setValueAtTime(hz * h * Math.sqrt(1 + B * h * h), now);
-
-          const g = ctx.createGain();
-          const peak = gainLevel * Math.pow(1 / h, 1.25) * (h === 1 ? 1 : 0.92);
-          const decay = body / (1 + 0.34 * (h - 1));
-          const attack = 0.003 + h * 0.0015;
-
-          const tail = Math.max(attack + 0.05, decay);
-          g.gain.setValueAtTime(0.0001, now);
-          g.gain.exponentialRampToValueAtTime(Math.max(0.0003, peak), now + attack);
-          // 音头后先快速掉一截（钢琴的"敲击感"），再慢慢衰减
-          g.gain.exponentialRampToValueAtTime(Math.max(0.0004, peak * 0.34), now + Math.min(tail * 0.35, attack + 0.1));
-          g.gain.exponentialRampToValueAtTime(0.0001, now + tail);
-
-          osc.connect(g);
-          g.connect(tone);
-          osc.start(now);
-          osc.stop(now + decay + 0.08);
-        }
-
-        // 琴槌
-        const noise = ctx.createBufferSource();
-        noise.buffer = getHammerBuffer(ctx);
-        const bp = ctx.createBiquadFilter();
-        bp.type = "bandpass";
-        bp.frequency.value = Math.min(5200, hz * 5.5 + 900);
-        bp.Q.value = 1.2;
-        const ng = ctx.createGain();
-        ng.gain.setValueAtTime(Math.max(0.001, gainLevel * 0.32), now);
-        ng.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
-        noise.connect(bp);
-        bp.connect(ng);
-        ng.connect(master);
-        noise.start(now);
-        noise.stop(now + 0.07);
-      } catch (e) {}
-    }
-
-    /**
-     * 齿轮"嗒"：手表擒纵那种清脆短促的金属咔哒。
-     * 由三部分组成——高频噪声瞬态（金属齿）+ 一个很短的高频"叮" + 极少量机芯厚度。
-     * 每次触发有轻微随机失谐，连续转盘时不会听起来像同一个采样反复播放。
-     */
-    function playMechanicalClick(intensity = 1) {
-      if (!state.audioEnabled) return;
-      try {
-        const ctx = getAudioCtx();
-        const master = getPianoMaster(ctx);
-        const now = ctx.currentTime;
-        const level = 0.3 * intensity;
-        const jitter = 1 + (Math.random() - 0.5) * 0.07;
-
-        // 1) 金属齿的瞬态：一段短噪声过窄带通
-        const noise = ctx.createBufferSource();
-        noise.buffer = getHammerBuffer(ctx);
-        const bp = ctx.createBiquadFilter();
-        bp.type = "bandpass";
-        bp.frequency.setValueAtTime(3050 * jitter, now);
-        bp.Q.value = 6;
-        const ng = ctx.createGain();
-        ng.gain.setValueAtTime(level, now);
-        ng.gain.exponentialRampToValueAtTime(0.0001, now + 0.02);
-        noise.connect(bp);
-        bp.connect(ng);
-        ng.connect(master);
-        noise.start(now);
-        noise.stop(now + 0.028);
-
-        // 2) 清脆的"叮"
-        const ping = ctx.createOscillator();
-        ping.type = "sine";
-        ping.frequency.setValueAtTime(3920 * jitter, now);
-        const pg = ctx.createGain();
-        pg.gain.setValueAtTime(level * 0.5, now);
-        pg.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
-        ping.connect(pg);
-        pg.connect(master);
-        ping.start(now);
-        ping.stop(now + 0.038);
-
-        // 3) 一点点机芯厚度（不要多，多了就变闷）
-        const body = ctx.createOscillator();
-        body.type = "sine";
-        body.frequency.setValueAtTime(196 * jitter, now);
-        const bg = ctx.createGain();
-        bg.gain.setValueAtTime(level * 0.14, now);
-        bg.gain.exponentialRampToValueAtTime(0.0001, now + 0.018);
-        body.connect(bg);
-        bg.connect(master);
-        body.start(now);
-        body.stop(now + 0.024);
-      } catch (e) {}
-    }
-
-    function getTriadInfo(keyIdx, degree) {
-      const keyObj = WHEEL_KEYS[keyIdx];
-      const meta = DEGREE_META[degree];
-      const [d1, d2, d3] = meta.formula;
-
-      const n1 = keyObj.scale[d1 - 1];
-      const n2 = keyObj.scale[d2 - 1];
-      const n3 = keyObj.scale[d3 - 1];
-
-      let rootMidi = 60 + keyObj.semitones[d1 - 1];
-      let thirdMidi = rootMidi + (meta.quality === "major" ? 4 : 3);
-      let fifthMidi = rootMidi + (meta.quality === "dim" ? 6 : 7);
-
-      const chordSymbol = n1 + meta.suffix;
-      return {
-        degree,
-        chordSymbol,
-        rootNote: n1,
-        notes: [n1, n2, n3],
-        midis: [rootMidi, thirdMidi, fifthMidi],
-        meta
-      };
-    }
-
-    function playChordTriad(keyIdx, degree) {
-      const triad = getTriadInfo(keyIdx, degree);
-      playSingleNote(triad.midis[0] - 12, 0, 1.1, 0.14);
-      playSingleNote(triad.midis[0], 0.02, 1.0, 0.2);
-      playSingleNote(triad.midis[1], 0.055, 1.0, 0.18);
-      playSingleNote(triad.midis[2], 0.09, 1.05, 0.18);
-      flashPianoChord(triad.midis.map((m) => ((m % 12) + 12) % 12));
-    }
-
-    /********************************************************************
-     * 4. BUILD THE 24-LAYER 3D THICKNESS SLABS & SVG GEAR WHEEL
-     ********************************************************************/
-    function init3DThicknessLayers() {
-      const container = document.getElementById("thickness-layers-container");
-      container.innerHTML = "";
-      // Create 24 dense 3D Z-slices from Z = -24px to Z = +24px (52px total thickness, 3x thicker than before!)
-      for (let z = -24; z <= 24; z += 2) {
-        if (z === 0) continue;
-        const absZ = Math.abs(z);
-        const div = document.createElement("div");
-        div.className = "device-thickness-layer";
-        div.style.transform = `translateZ(${z}px)`;
-        div.style.setProperty("--z", z);
-        div.style.setProperty("--zf", z + 50);
-        div.style.setProperty("--zb", 50 - z);
-
-        let fill = "#090a0f";
-        let stroke = "#27272a";
-        let isOuterShell = false;
-
-        if (absZ >= 20) {
-          // Colored outer acrylic plates (Front & Back)
-          fill = "#ca8a04";
-          stroke = "rgba(255,255,255,0.48)";
-          isOuterShell = true;
-        } else if (absZ >= 10) {
-          // Clear frosted acrylic middle spacer plates (as seen in Photo 3's edge view)
-          fill = "#1e293b";
-          stroke = "rgba(226,232,240,0.42)";
-        } else {
-          // Central dark gear wheel core layer
-          fill = "#090a0f";
-          stroke = "#3f3f46";
-        }
-
-        div.innerHTML = `<svg viewBox="0 0 600 600" class="w-full h-full"><use href="#plate-shape" class="${isOuterShell ? "thickness-shell-plate" : ""}" fill="${fill}" stroke="${stroke}" stroke-width="8" /></svg>`;
-        container.appendChild(div);
-      }
-    }
-
-    function generateScallopedWheelPath(cx, cy, rOuter, rInner, teethCount) {
-      let d = "";
-      const step = (Math.PI * 2) / teethCount;
-      for (let i = 0; i < teethCount; i++) {
-        const a1 = i * step - step * 0.26;
-        const a2 = i * step + step * 0.26;
-        const a3 = (i + 0.5) * step - step * 0.22;
-        const a4 = (i + 0.5) * step + step * 0.22;
-
-        const x1 = cx + rOuter * Math.sin(a1);
-        const y1 = cy - rOuter * Math.cos(a1);
-        const x2 = cx + rOuter * Math.sin(a2);
-        const y2 = cy - rOuter * Math.cos(a2);
-        const x3 = cx + rInner * Math.sin(a3);
-        const y3 = cy - rInner * Math.cos(a3);
-        const x4 = cx + rInner * Math.sin(a4);
-        const y4 = cy - rInner * Math.cos(a4);
-
-        if (i === 0) {
-          d += `M ${x1.toFixed(1)},${y1.toFixed(1)} `;
-        } else {
-          d += `L ${x1.toFixed(1)},${y1.toFixed(1)} `;
-        }
-        d += `A ${rOuter},${rOuter} 0 0 1 ${x2.toFixed(1)},${y2.toFixed(1)} `;
-        d += `Q ${x3.toFixed(1)},${y3.toFixed(1)} ${x4.toFixed(1)},${y4.toFixed(1)} `;
-      }
-      d += "Z";
-      return d;
-    }
-
-    function createSvgNoteLabel(noteStr, x, y, fontSize, fill, fontWeight = "800") {
-      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      text.setAttribute("x", x);
-      text.setAttribute("y", y);
-      text.setAttribute("text-anchor", "middle");
-      text.setAttribute("dominant-baseline", "central");
-      text.setAttribute("fill", fill);
-      text.setAttribute("font-size", fontSize);
-      text.setAttribute("font-weight", fontWeight);
-
-      if (noteStr.length > 1 && (noteStr.endsWith("#") || noteStr.endsWith("b"))) {
-        const base = noteStr.slice(0, -1);
-        const acc = noteStr.endsWith("#") ? "♯" : "♭";
-        text.textContent = base;
-        const tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
-        tspan.textContent = acc;
-        tspan.setAttribute("font-size", Math.round(fontSize * 0.62));
-        tspan.setAttribute("dy", -Math.round(fontSize * 0.26));
-        tspan.setAttribute("dx", "1");
-        text.appendChild(tspan);
-      } else {
-        text.textContent = noteStr;
-      }
-      g.appendChild(text);
-      return g;
-    }
-
-    function initWheelSvg() {
-      const gearPath = generateScallopedWheelPath(300, 300, 260, 248, 36);
-      document.getElementById("wheel-gear-front").setAttribute("d", gearPath);
-      document.getElementById("wheel-gear-back").setAttribute("d", gearPath);
-
-      const backInnerGear = generateScallopedWheelPath(225, 220, 86, 76, 16);
-      document.getElementById("wheel-gear-back-inner").setAttribute("d", backInnerGear);
-
-      const majorsGroup = document.getElementById("wheel-front-majors");
-      const minorsGroup = document.getElementById("wheel-front-minors");
-      const sigsGroup   = document.getElementById("wheel-front-sigs");
-      const dimsGroup   = document.getElementById("wheel-front-dims");
-
-      majorsGroup.innerHTML = "";
-      minorsGroup.innerHTML = "";
-      sigsGroup.innerHTML   = "";
-      dimsGroup.innerHTML   = "";
-
-      const backProgsGroup = document.getElementById("wheel-back-progs-rot");
-      backProgsGroup.innerHTML = '<g id="back-prog-pills"></g>';
-
-      WHEEL_KEYS.forEach((k, i) => {
-        const deg = i * 30;
-
-        // --- Track A: Major Chords (y=88 so it sits centered inside the raised top notch y=50..114) ---
-        const majG = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        majG.setAttribute("transform", `rotate(${deg} 300 300)`);
-        const majLabel = createSvgNoteLabel(k.majorDisplay, 300, 88, 38, "#eab308", "800");
-        majLabel.classList.add("wheel-major-text");
-        majG.appendChild(majLabel);
-        majorsGroup.appendChild(majG);
-
-        // --- Track B: Key Signatures (y=170, centered inside the lowered Signature window y=152..188) ---
-        const sigG = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        sigG.setAttribute("transform", `rotate(${deg} 300 300)`);
-        const sigText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        sigText.setAttribute("x", "300");
-        sigText.setAttribute("y", "170");
-        sigText.setAttribute("text-anchor", "middle");
-        sigText.setAttribute("dominant-baseline", "central");
-        sigText.setAttribute("fill", "#ffffff");
-        const formattedSig = k.sigText === "NATURAL" ? "—" : k.sigText.replace(/^#/, "♯").replace(/^b/, "♭");
-        sigText.setAttribute("font-size", formattedSig.length >= 6 ? "9.5" : "11.5");
-        sigText.setAttribute("font-weight", "700");
-        sigText.setAttribute("letter-spacing", "-0.3");
-        sigText.textContent = formattedSig;
-        sigG.appendChild(sigText);
-        sigsGroup.appendChild(sigG);
-
-        // --- Track C: Minor Chords (Radius 154, placed at bottom 300,454) ---
-        const minG = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        minG.setAttribute("transform", `rotate(${deg} 300 300)`);
-        const minLabel = createSvgNoteLabel(k.minor, 300, 454, 28, "#ffffff", "700");
-        minG.appendChild(minLabel);
-        minorsGroup.appendChild(minG);
-
-        // --- Track D: Diminished Chords (Radius 82, placed at left 218,300) ---
-        const dimG = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        dimG.setAttribute("transform", `rotate(${deg} 300 300)`);
-        const dimLabel = createSvgNoteLabel(k.dim, 218, 300, 20, "#eab308", "800");
-        dimG.appendChild(dimLabel);
-        dimsGroup.appendChild(dimG);
-
-        // --- Track E (BACK FACE): 12 Rotating Chord Progressions inside Back Window (center x=415, y=184) ---
-        const progSpoke = document.createElementNS("http://www.w3.org/2000/svg", "g");
-        progSpoke.setAttribute("transform", `rotate(${-deg} 300 300)`);
-
-        const startX = 352;
-        const cy = 184;
-        k.backProg.forEach((num, stepIdx) => {
-          const cx = startX + stepIdx * 42;
-          const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-          circle.setAttribute("cx", cx);
-          circle.setAttribute("cy", cy);
-          circle.setAttribute("r", "10.5");
-          circle.setAttribute("fill", "#ffffff");
-          progSpoke.appendChild(circle);
-
-          const numText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-          numText.setAttribute("x", cx);
-          numText.setAttribute("y", cy + 0.5);
-          numText.setAttribute("text-anchor", "middle");
-          numText.setAttribute("dominant-baseline", "central");
-          numText.setAttribute("fill", "#090a0c");
-          numText.setAttribute("font-size", "12.5");
-          numText.setAttribute("font-weight", "900");
-          numText.textContent = num;
-          progSpoke.appendChild(numText);
-
-          if (stepIdx < k.backProg.length - 1) {
-            const arrow = document.createElementNS("http://www.w3.org/2000/svg", "text");
-            arrow.setAttribute("x", cx + 21);
-            arrow.setAttribute("y", cy);
-            arrow.setAttribute("text-anchor", "middle");
-            arrow.setAttribute("dominant-baseline", "central");
-            arrow.setAttribute("fill", "#ffffff");
-            arrow.setAttribute("font-size", "12");
-            arrow.setAttribute("font-weight", "700");
-            arrow.textContent = "→";
-            progSpoke.appendChild(arrow);
-          }
-        });
-
-        backProgsGroup.appendChild(progSpoke);
-      });
-    }
-
-    /********************************************************************
-     * 6. SYNCHRONIZE ALL UI WITH CURRENT STATE
-     ********************************************************************/
-    function formatPrettyNote(str) {
-      return str.replace(/#/g, "♯").replace(/([A-Ga-g])b/g, "$1♭");
-    }
-
-    // 拖动时每帧都会走到这里，所以只做最轻的两件事：转盘角度 + 背面示例文案
-    function updateAllUI() {
-      const rotStr = `rotate(${state.wheelAngle} 300 300)`;
-      document.getElementById("wheel-front-gear-rot").setAttribute("transform", rotStr);
-      document.getElementById("wheel-front-majors").setAttribute("transform", rotStr);
-      document.getElementById("wheel-front-minors").setAttribute("transform", rotStr);
-      document.getElementById("wheel-front-sigs").setAttribute("transform", rotStr);
-      document.getElementById("wheel-front-dims").setAttribute("transform", rotStr);
-
-      syncPianoRoot();
-
-      const backRotStr = `rotate(${-state.wheelAngle} 300 300)`;
-      document.getElementById("wheel-back-group").setAttribute("transform", backRotStr);
-      document.getElementById("wheel-back-progs-rot").setAttribute("transform", backRotStr);
-      document.getElementById("wheel-back-cutout-gear").setAttribute("transform", `rotate(${-state.wheelAngle} 225 220)`);
-
-      updateBackFace();
-    }
-
-    // 背面窗口下方那行：“Key of G: G → F♯° → Em → D”
-    function updateBackFace() {
-      const keyObj = WHEEL_KEYS[state.keyIndex];
-      const prettyMajor = formatPrettyNote(keyObj.majorDisplay);
-      const chords = keyObj.backProg
-        .map((d) => formatPrettyNote(getTriadInfo(state.keyIndex, d).chordSymbol))
-        .join(" → ");
-
-      const el = document.getElementById("back-live-key-example");
-      if (!el) return;
-      el.innerHTML = "";
-
-      const fullLen = (`Key of ${prettyMajor}: ` + chords).length;
-      el.setAttribute("font-size", fullLen > 24 ? "10.2" : fullLen > 20 ? "11.2" : "12.2");
-      if (fullLen > 22) {
-        el.setAttribute("textLength", "172");
-        el.setAttribute("lengthAdjust", "spacingAndGlyphs");
-      } else {
-        el.removeAttribute("textLength");
-        el.removeAttribute("lengthAdjust");
-      }
-
-      const labelSpan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
-      labelSpan.setAttribute("fill", "#a1a1aa");
-      labelSpan.setAttribute("font-weight", "600");
-      labelSpan.textContent = `Key of ${prettyMajor}:`;
-
-      const chordsSpan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
-      chordsSpan.setAttribute("dx", "8");
-      chordsSpan.setAttribute("fill", "#ffffff");
-      chordsSpan.setAttribute("font-weight", "800");
-      chordsSpan.textContent = chords;
-
-      el.appendChild(labelSpan);
-      el.appendChild(chordsSpan);
-    }
-
-    /********************************************************************
-     * 7. WHEEL ROTATION, DRAG GESTURES & KEY SELECTION
-     ********************************************************************/
-    function selectKeyByIndex(targetIdx, playAudio = true) {
-      const normalizedIdx = ((targetIdx % 12) + 12) % 12;
-      const targetAngle = -normalizedIdx * 30;
-
-      let diff = ((targetAngle - state.wheelAngle) % 360 + 540) % 360 - 180;
-      state.wheelAngle += diff;
-
-      const changed = state.keyIndex !== normalizedIdx;
-      state.keyIndex = normalizedIdx;
-
-      if (changed && playAudio) {
-        playMechanicalClick();
-        playChordTriad(state.keyIndex, state.selectedDegree);
-      }
-      updateAllUI();
-    }
-
-    function stepWheel(deltaSteps) {
-      selectKeyByIndex(state.keyIndex + deltaSteps, true);
-    }
-
-    function initWheelDrag() {
-      const svgFront = document.getElementById("svg-front");
-      const svgBack = document.getElementById("svg-back");
-
-      let isDragging = false;
-      let startPointerAngle = 0;
-      let startWheelAngle = 0;
-      let activeSvg = null;
-
-      function getAngleFromCenter(e, svgEl) {
-        const rect = svgEl.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        return Math.atan2(clientY - cy, clientX - cx) * (180 / Math.PI);
-      }
-
-      function onStart(e, svgEl) {
-        isDragging = true;
-        activeSvg = svgEl;
-        startPointerAngle = getAngleFromCenter(e, svgEl);
-        startWheelAngle = state.wheelAngle;
-      }
-
-      function onMove(e) {
-        if (!isDragging || !activeSvg) return;
-        const currentPointerAngle = getAngleFromCenter(e, activeSvg);
-        let delta = currentPointerAngle - startPointerAngle;
-        if (delta > 180) delta -= 360;
-        if (delta < -180) delta += 360;
-
-        const factor = activeSvg.id === "svg-back" ? -1 : 1;
-        state.wheelAngle = startWheelAngle + delta * factor;
-
-        const nearestIdx = Math.round(-state.wheelAngle / 30);
-        const normIdx = ((nearestIdx % 12) + 12) % 12;
-        if (normIdx !== state.keyIndex) {
-          state.keyIndex = normIdx;
-          playMechanicalClick();
-        }
-        updateAllUI();
-      }
-
-      function onEnd() {
-        if (!isDragging) return;
-        isDragging = false;
-        activeSvg = null;
-        const snappedIdx = Math.round(-state.wheelAngle / 30);
-        selectKeyByIndex(snappedIdx, false);
-      }
-
-      [svgFront, svgBack].forEach((svgEl) => {
-        svgEl.addEventListener("mousedown", (e) => {
-          if (e.target.classList.contains("chord-hotspot")) return;
-          onStart(e, svgEl);
-        });
-        svgEl.addEventListener("touchstart", (e) => {
-          if (e.target.classList.contains("chord-hotspot")) return;
-          onStart(e, svgEl);
-        }, { passive: true });
-
-        svgEl.addEventListener("wheel", (e) => {
-          e.preventDefault();
-          stepWheel(e.deltaY > 0 ? 1 : -1);
-        }, { passive: false });
-      });
-
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("touchmove", onMove, { passive: true });
-      window.addEventListener("mouseup", onEnd);
-      window.addEventListener("touchend", onEnd);
-    }
-
-    /********************************************************************
-     * 9. EVENT LISTENERS & INITIALIZATION
-     ********************************************************************/
-    function applyColorTheme(themeKey) {
-      state.colorTheme = themeKey;
-      const theme = COLOR_THEMES[themeKey] || COLOR_THEMES.yellow;
-      document.getElementById("roll-piano")?.style.setProperty("--piano-accent", theme.plate);
-      document.getElementById("front-plate-fill").setAttribute("fill", theme.plate);
-      document.getElementById("back-plate-fill").setAttribute("fill", theme.plate);
-
-      document.querySelectorAll(".thickness-shell-plate").forEach(el => el.setAttribute("fill", theme.rim));
-      document.querySelectorAll(".plate-accent-fill").forEach(el => el.setAttribute("fill", theme.plate));
-      document.querySelectorAll(".plate-accent-stroke").forEach(el => el.setAttribute("stroke", theme.plate));
-
-      document.querySelectorAll(".color-btn").forEach((btn) => {
-        btn.classList.toggle("is-on", btn.dataset.color === themeKey);
-      });
-    }
-
-    /********************************************************************
-     * 9. VIEW TRANSFORM：四角等比缩放 + 中心整体拖动
-     ********************************************************************/
-    const VIEW_MIN_ZOOM = 0.4;
-    let viewZoom = 1;
-    let viewX = 0;
-    let viewY = 0;
-
-    function applyViewTransform() {
-      const sceneEl = document.getElementById("scene");
-      if (!sceneEl) return;
-      // 未缩放未平移时不留 transform，保持静止态的平面绘制（清晰度相关）
-      if (viewZoom === 1 && viewX === 0 && viewY === 0) {
-        sceneEl.style.transform = "";
-      } else {
-        sceneEl.style.transform = `translate(${viewX}px, ${viewY}px) scale(${viewZoom})`;
-      }
-    }
-
-    function initViewControls() {
-      const sceneEl = document.getElementById("scene");
-      if (!sceneEl) return;
-
-      sceneEl.querySelectorAll(".handle").forEach((handle) => {
-        handle.addEventListener("pointerdown", (e) => {
-          if (e.button !== 0) return;
-          e.preventDefault();
-          e.stopPropagation();
-
-          const mode = handle.dataset.drag;
-          const rect = sceneEl.getBoundingClientRect();
-          const centerX = rect.left + rect.width / 2;
-          const centerY = rect.top + rect.height / 2;
-          const startDistance = Math.max(1, Math.hypot(e.clientX - centerX, e.clientY - centerY));
-          const startZoom = viewZoom;
-          const startX = e.clientX;
-          const startY = e.clientY;
-          const startPanX = viewX;
-          const startPanY = viewY;
-
-          if (handle.setPointerCapture) {
-            try { handle.setPointerCapture(e.pointerId); } catch (err) {}
-          }
-
-          const onMove = (ev) => {
-            if (mode === "zoom") {
-              // 等比缩放：指针离中心越远越大，缩小到 40% 为止，放大不设上限
-              const distance = Math.hypot(ev.clientX - centerX, ev.clientY - centerY);
-              viewZoom = Math.max(VIEW_MIN_ZOOM, startZoom * (distance / startDistance));
-            } else {
-              viewX = startPanX + (ev.clientX - startX);
-              viewY = startPanY + (ev.clientY - startY);
-            }
-            applyViewTransform();
-          };
-          const onUp = () => {
-            handle.removeEventListener("pointermove", onMove);
-            handle.removeEventListener("pointerup", onUp);
-            handle.removeEventListener("pointercancel", onUp);
-          };
-
-          handle.addEventListener("pointermove", onMove);
-          handle.addEventListener("pointerup", onUp);
-          handle.addEventListener("pointercancel", onUp);
-        });
-      });
-    }
-
-    /********************************************************************
-     * 10. DOCK：控制条的拖动 / 等比缩放 / 不越界
-     ********************************************************************/
-    const DOCK_MIN_ZOOM = 0.35;
-    let dockZoom = 1;
-    let dockX = 0;
-    let dockY = 0;
-
-    function applyDockTransform() {
-      const dock = document.getElementById("dock");
-      if (!dock) return;
-      if (dockZoom === 1 && dockX === 0 && dockY === 0) {
-        dock.style.transform = "";
-      } else {
-        dock.style.transform = `translate(${dockX}px, ${dockY}px) scale(${dockZoom})`;
-      }
-    }
-
-    // 控制条整体必须留在页面内（留 12px 余量，右下角的缩放手柄才不会贴边被切）
-    function clampDock() {
-      const dock = document.getElementById("dock");
-      if (!dock) return;
-      const r = dock.getBoundingClientRect();
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const margin = 12;
-      let dx = 0;
-      let dy = 0;
-
-      if (r.width <= vw - margin * 2) {
-        if (r.left < margin) dx = margin - r.left;
-        else if (r.right > vw - margin) dx = vw - margin - r.right;
-      } else {
-        dx = margin - r.left;
-      }
-      if (r.height <= vh - margin * 2) {
-        if (r.top < margin) dy = margin - r.top;
-        else if (r.bottom > vh - margin) dy = vh - margin - r.bottom;
-      } else {
-        dy = margin - r.top;
-      }
-
-      if (dx || dy) {
-        dockX += dx;
-        dockY += dy;
-        applyDockTransform();
-      }
-    }
-
-    /**
-     * 指针移到"可以缩放的角"时换成双向箭头，其他位置保持手掌——和纸张的四个角一致。
-     * 角的方向按最近的那个角算：左上/右下 → nwse，右上/左下 → nesw。
-     */
-    function initCornerCursor(el, cornerPx, isBusy) {
-      if (!el) return;
-      const clear = () => el.classList.remove("is-cursor-nwse", "is-cursor-nesw");
-      document.addEventListener("pointermove", (e) => {
-        if (isBusy && isBusy()) { clear(); return; }
-        const r = el.getBoundingClientRect();
-        const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-        const nearCorner =
-          (e.clientX - r.left < cornerPx || r.right - e.clientX < cornerPx) &&
-          (e.clientY - r.top < cornerPx || r.bottom - e.clientY < cornerPx);
-        if (!inside || !nearCorner) { clear(); return; }
-        const leftSide = (e.clientX - r.left) < (r.right - e.clientX);
-        const topSide = (e.clientY - r.top) < (r.bottom - e.clientY);
-        const nwse = leftSide === topSide;
-        el.classList.toggle("is-cursor-nwse", nwse);
-        el.classList.toggle("is-cursor-nesw", !nwse);
-      }, { passive: true });
-      document.addEventListener("pointerleave", clear);
-    }
-
-    // 控制条：长按空白处拖动；长按四角边缘缩放（不再有可见抓手/圆点）
-    function initDockControls() {
-      const dock = document.getElementById("dock");
-      if (!dock) return;
-
-      const CORNER = 26;      // 四角判定半径
-      const HOLD = 320;       // 长按多久开始拖
-      let pressTimer = 0;
-      let pressing = false;
-      let dragging = false;
-      let mode = "move";
-      let startX = 0;
-      let startY = 0;
-      let baseX = 0;
-      let baseY = 0;
-      let centerX = 0;
-      let centerY = 0;
-      let startDistance = 1;
-      let startZoom = 1;
-
-      const stopPress = () => {
-        clearTimeout(pressTimer);
-        pressTimer = 0;
-        pressing = false;
-        if (dragging) {
-          dragging = false;
-          dock.classList.remove("is-dragging");
-          return true;
-        }
-        return false;
-      };
-
-      const beginDrag = () => {
-        dragging = true;
-        dock.classList.add("is-dragging");
-      };
-
-      const onMove = (e) => {
-        if (!pressing) return;
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-        if (!dragging) {
-          if (Math.hypot(dx, dy) <= 6) return;
-          clearTimeout(pressTimer);
-          pressTimer = 0;
-          beginDrag();
-        }
-        if (mode === "zoom") {
-          const distance = Math.hypot(e.clientX - centerX, e.clientY - centerY);
-          dockZoom = Math.max(DOCK_MIN_ZOOM, startZoom * (distance / startDistance));
-        } else {
-          dockX = baseX + dx;
-          dockY = baseY + dy;
-        }
-        applyDockTransform();
-        clampDock();
-      };
-
-      const onUp = () => {
-        if (!pressing) return;
-        stopPress();
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-        window.removeEventListener("pointercancel", onUp);
-      };
-
-      document.addEventListener("pointerdown", (e) => {
-        if (e.button !== 0) return;
-        const rect = dock.getBoundingClientRect();
-        const PAD = 10;   // 贴着边缘外一点也算抓到了
-        const inside = e.clientX >= rect.left && e.clientX <= rect.right &&
-                       e.clientY >= rect.top && e.clientY <= rect.bottom;
-        const inGrab = e.clientX >= rect.left - PAD && e.clientX <= rect.right + PAD &&
-                       e.clientY >= rect.top - PAD && e.clientY <= rect.bottom + PAD;
-        if (!inGrab) return;
-        // 按在按钮上就是点按钮
-        if (inside && e.target.closest("button")) return;
-        const nearCorner =
-          (e.clientX - rect.left < CORNER || rect.right - e.clientX < CORNER) &&
-          (e.clientY - rect.top < CORNER || rect.bottom - e.clientY < CORNER);
-
-        e.preventDefault();
-        pressing = true;
-        dragging = false;
-        mode = nearCorner ? "zoom" : "move";
-        startX = e.clientX;
-        startY = e.clientY;
-        baseX = dockX;
-        baseY = dockY;
-        centerX = rect.left + rect.width / 2;
-        centerY = rect.top + rect.height / 2;
-        startDistance = Math.max(1, Math.hypot(e.clientX - centerX, e.clientY - centerY));
-        startZoom = dockZoom;
-
-        window.addEventListener("pointermove", onMove);
-        window.addEventListener("pointerup", onUp);
-        window.addEventListener("pointercancel", onUp);
-
-        clearTimeout(pressTimer);
-        pressTimer = setTimeout(() => {
-          if (!pressing) return;
-          beginDrag();
-        }, HOLD);
-      });
-
-      window.addEventListener("resize", clampDock);
-      initCornerCursor(dock, CORNER, () => dragging);
-    }
-
-    // 一键归位：五度圈、控制条、说明文档都回到原位原大小
-    // 重置：五度圈 / 纸张 / 钢琴都平滑回到原位原大，控制条保持用户摆放的样子
-    let resetAnimTimer = 0;
-    function resetLayout() {
-      const sceneEl = document.getElementById("scene");
-      const paperEl = document.getElementById("paper");
-      const pianoEl = document.getElementById("roll-piano");
-      const animated = [sceneEl, paperEl, pianoEl].filter(Boolean);
-      animated.forEach((el) => el.classList.add("is-resetting"));
-
-      // 用显式的单位值作目标，保证能从当前值插值过去（而不是跳到 none）
-      viewZoom = 1;
-      viewX = 0;
-      viewY = 0;
-      if (sceneEl) sceneEl.style.transform = "translate(0px, 0px) scale(1)";
-
-      paperZoom = 1;
-      paperX = 0;
-      paperY = 0;
-      if (paperEl) {
-        paperEl.style.transform = "translate(0px, 0px) scale(1)";
-        paperEl.classList.add("is-collapsed");
-      }
-
-      pianoZoom = 1;
-      pianoPanX = 0;
-      pianoPanY = 0;
-      if (pianoEl) {
-        pianoEl.style.setProperty("--piano-zoom", "1");
-        pianoEl.style.setProperty("--piano-x", "0px");
-        pianoEl.style.setProperty("--piano-y", "0px");
-        pianoEl.classList.add("is-folded");
-      }
-
-      // 过渡结束后清掉内联 transform，回到"静止时不留 transform"的清晰度处理
-      clearTimeout(resetAnimTimer);
-      resetAnimTimer = setTimeout(() => {
-        animated.forEach((el) => el.classList.remove("is-resetting"));
-        applyViewTransform();
-        applyPaperTransform();
-        applyPianoZoom();
-      }, 560);
-    }
-
-    // 重置动画还在跑的时候用户就上手拖，就直接结束动画，免得拖起来发涩
-    document.addEventListener("pointerdown", () => {
-      if (!resetAnimTimer) return;
-      clearTimeout(resetAnimTimer);
-      resetAnimTimer = 0;
-      document.querySelectorAll(".is-resetting").forEach((el) => el.classList.remove("is-resetting"));
-    }, true);
-
-    /********************************************************************
-     * 12. ROLL PIANO：可收卷 / 展开 / 缩放，并跟随当前主音高亮
-     ********************************************************************/
-    let pianoZoom = 1;
-    let pianoPanX = 0;
-    let pianoPanY = 0;
-    let pianoBuilt = false;
-    const PIANO_LONG_PRESS = 320;
-    const PIANO_MIN_ZOOM = 0.4;
-    const PIANO_MAX_ZOOM = 2.4;
-    const PIANO_NOTE_NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"];
-    const PIANO_NATURAL_PCS = [0, 2, 4, 5, 7, 9, 11];
-    const PIANO_BLACK_AFTER = [0, 1, 3, 4, 5];
-
-    /**
-     * 键盘固定按 C3–B5 排（三个八度，和真实钢琴一致），不随调性变化。
-     * 跟着主音走的只有"高亮窗口"——见 pianoWindow。
-     */
-    function buildPianoKeys() {
-      const whites = document.getElementById("piano-white-keys");
-      const blacks = document.getElementById("piano-black-keys");
-      if (pianoBuilt || !whites || !blacks) return;
-      pianoBuilt = true;
-
-      let whiteIndex = 0;
-      for (let octave = 3; octave <= 5; octave += 1) {
-        PIANO_NATURAL_PCS.forEach((pitchClass, position) => {
-          const midi = (octave + 1) * 12 + pitchClass;
-
-          const note = document.createElement("span");
-          note.className = "piano-key piano-key-white";
-          note.dataset.pitchClass = String(pitchClass);
-          note.dataset.midi = String(midi);
-          note.dataset.octave = String(octave);
-          note.setAttribute("aria-label", `${PIANO_NOTE_NAMES[pitchClass]}${octave}`);
-          note.textContent = `${PIANO_NOTE_NAMES[pitchClass]}${octave}`;
-          whites.appendChild(note);
-
-          if (position < PIANO_NATURAL_PCS.length - 1 && PIANO_BLACK_AFTER.includes(position)) {
-            const blackPc = pitchClass + 1;
-            const black = document.createElement("span");
-            black.className = "piano-key piano-key-black";
-            black.dataset.pitchClass = String(blackPc);
-            black.dataset.midi = String((octave + 1) * 12 + blackPc);
-            black.dataset.octave = String(octave);
-            black.setAttribute("aria-label", `${PIANO_NOTE_NAMES[blackPc]}${octave}`);
-            black.style.left = `${((whiteIndex + 1) / 21) * 100}%`;
-            blacks.appendChild(black);
-          }
-          whiteIndex += 1;
-        });
-      }
-    }
-
-    /**
-     * 高亮窗口 = 从当前主音那颗键开始的一个八度（含起点、不含高一个八度的同名音）。
-     * 比如 G 调：G3 → F♯4，横跨两个八度，这样主音永远在高亮段的最左边。
-     */
-    function pianoWindow() {
-      const key = WHEEL_KEYS[state.keyIndex];
-      if (!key) return null;
-      const from = 60 + NOTE_PITCH_CLASS[key.majorDisplay];   // 主音落在第 4 八度（键盘中部）
-      return { from, to: from + 12 };
-    }
-    const NOTE_PITCH_CLASS = { C: 0, "C#": 1, Db: 1, D: 2, "D#": 3, Eb: 3, E: 4, F: 5, "F#": 6, Gb: 6, G: 7, "G#": 8, Ab: 8, A: 9, "A#": 10, Bb: 10, B: 11 };
-
-    function applyPianoZoom() {
-      const piano = document.getElementById("roll-piano");
-      if (!piano) return;
-      piano.style.setProperty("--piano-zoom", pianoZoom.toFixed(2));
-      piano.style.setProperty("--piano-x", `${Math.round(pianoPanX)}px`);
-      piano.style.setProperty("--piano-y", `${Math.round(pianoPanY)}px`);
-    }
-
-    function syncPianoRoot() {
-      const piano = document.getElementById("roll-piano");
-      const key = WHEEL_KEYS[state.keyIndex];
-      if (!piano || !key) return;
-      const pitchClass = NOTE_PITCH_CLASS[key.majorDisplay];
-      const scalePcs = key.scale.map((n) => NOTE_PITCH_CLASS[n]);
-      document.getElementById("piano-root-label").textContent = formatPrettyNote(key.majorDisplay);
-
-      buildPianoKeys();   // 固定键盘，只在第一次建
-
-      // 高亮窗口：主音那颗键 → 高一个八度之前，主音永远在最左边
-      const win = pianoWindow();
-      if (!win) return;
-      piano.querySelectorAll("[data-pitch-class]").forEach((note) => {
-        const midi = Number(note.dataset.midi);
-        const inWindow = midi >= win.from && midi < win.to;
-        note.classList.toggle("is-scale", inWindow && scalePcs.includes(Number(note.dataset.pitchClass)));
-      });
-    }
-
-    // 播放三和弦：先撤掉七音黄，只把这一八度里的三个音点亮成蓝色；结束后恢复七音
-    let pianoChordTimer = 0;
-    function flashPianoChord(pitchClasses) {
-      const piano = document.getElementById("roll-piano");
-      if (!piano) return;
-      piano.querySelectorAll(".is-scale").forEach((note) => note.classList.remove("is-scale"));
-      piano.querySelectorAll(".is-chord").forEach((note) => note.classList.remove("is-chord"));
-      const win = pianoWindow();
-      if (!win) return;
-      piano.querySelectorAll("[data-pitch-class]").forEach((note) => {
-        const midi = Number(note.dataset.midi);
-        if (midi < win.from || midi >= win.to) return;
-        if (pitchClasses.includes(Number(note.dataset.pitchClass))) note.classList.add("is-chord");
-      });
-      clearTimeout(pianoChordTimer);
-      pianoChordTimer = setTimeout(() => {
-        piano.querySelectorAll(".is-chord").forEach((note) => note.classList.remove("is-chord"));
-        syncPianoRoot();
-      }, 1150);
-    }
-
-    function initRollPiano() {
-      const piano = document.getElementById("roll-piano");
-
-      // 控制盒：单击 = 卷起 / 展开；长按盒身 = 移动整台琴；长按盒角 = 缩放
-      const boxEl = piano.querySelector(".piano-box");
-      if (boxEl) {
-        const CORNER = 26;
-        let pressTimer = 0;
-        let pressing = false;
-        let dragging = false;
-        let mode = "move";
-        let startX = 0;
-        let startY = 0;
-        let baseX = 0;
-        let baseY = 0;
-        let anchorX = 0;
-        let anchorY = 0;
-        let startDistance = 1;
-        let startZoom = 1;
-
-        const stopPress = () => {
-          clearTimeout(pressTimer);
-          pressTimer = 0;
-          pressing = false;
-          if (dragging) {
-            dragging = false;
-            piano.classList.remove("is-dragging");
-            return true;
-          }
-          return false;
-        };
-
-        boxEl.addEventListener("pointerdown", (e) => {
-          if (e.button !== 0) return;
-          e.preventDefault();
-          const r = boxEl.getBoundingClientRect();
-          const nearCorner =
-            (e.clientX - r.left < CORNER || r.right - e.clientX < CORNER) &&
-            (e.clientY - r.top < CORNER || r.bottom - e.clientY < CORNER);
-          pressing = true;
-          dragging = false;
-          mode = nearCorner ? "zoom" : "move";
-          startX = e.clientX;
-          startY = e.clientY;
-          baseX = pianoPanX;
-          baseY = pianoPanY;
-          // 缩放锚点 = 控制盒右下角（也是 transform-origin）
-          anchorX = r.right;
-          anchorY = r.bottom;
-          startDistance = Math.max(46, Math.hypot(e.clientX - anchorX, e.clientY - anchorY));
-          startZoom = pianoZoom;
-          if (boxEl.setPointerCapture) {
-            try { boxEl.setPointerCapture(e.pointerId); } catch (err) {}
-          }
-          clearTimeout(pressTimer);
-          pressTimer = setTimeout(() => {
-            if (!pressing) return;
-            dragging = true;
-            piano.classList.add("is-dragging");
-          }, PIANO_LONG_PRESS);
-        });
-
-        boxEl.addEventListener("pointermove", (e) => {
-          if (!pressing) return;
-          const dx = e.clientX - startX;
-          const dy = e.clientY - startY;
-          if (!dragging) {
-            if (Math.hypot(dx, dy) <= 6) return;
-            clearTimeout(pressTimer);
-            pressTimer = 0;
-            dragging = true;
-            piano.classList.add("is-dragging");
-          }
-          if (mode === "zoom") {
-            const distance = Math.hypot(e.clientX - anchorX, e.clientY - anchorY);
-            pianoZoom = Math.max(PIANO_MIN_ZOOM, Math.min(PIANO_MAX_ZOOM, startZoom * distance / startDistance));
-          } else {
-            pianoPanX = baseX + dx;
-            pianoPanY = baseY + dy;
-          }
-          applyPianoZoom();
-        });
-
-        boxEl.addEventListener("pointerup", () => {
-          if (!pressing) return;
-          const wasDragging = stopPress();
-          if (!wasDragging && mode !== "zoom") piano.classList.toggle("is-folded");
-        });
-        boxEl.addEventListener("pointercancel", () => { stopPress(); });
-
-        // 盒角显示缩放光标
-        initCornerCursor(boxEl, CORNER, () => dragging);
-      }
-
-      // 弹奏：按下发声；按住拖动可以滑奏
-      let pressedKey = null;
-      const releasePressedKey = () => {
-        if (pressedKey) pressedKey.classList.remove("is-pressed");
-        pressedKey = null;
-      };
-      const pressKey = (el) => {
-        if (!el || el === pressedKey || !el.dataset.midi) return;
-        releasePressedKey();
-        pressedKey = el;
-        el.classList.add("is-pressed");
-        playSingleNote(Number(el.dataset.midi), 0, 0.9, 0.26);
-      };
-      const roll = piano.querySelector(".piano-roll");
-      roll.addEventListener("pointerdown", (e) => {
-        const key = e.target.closest(".piano-key");
-        if (!key) return;
-        e.preventDefault();
-        if (roll.setPointerCapture) {
-          try { roll.setPointerCapture(e.pointerId); } catch (err) {}
-        }
-        pressKey(key);
-      });
-      roll.addEventListener("pointermove", (e) => {
-        if (!pressedKey) return;
-        const el = document.elementFromPoint(e.clientX, e.clientY);
-        const key = el && el.closest ? el.closest(".piano-key") : null;
-        if (key) pressKey(key);
-      });
-      roll.addEventListener("pointerup", releasePressedKey);
-      roll.addEventListener("pointercancel", releasePressedKey);
-      roll.addEventListener("pointerleave", releasePressedKey);
-
-
-      syncPianoRoot();
-    }
-
-    /********************************************************************
-     * 11. PAPER：说明文档白纸（单击收起 / 长按拖动 / 四角缩放）
-     ********************************************************************/
-    const PAPER_MIN_ZOOM = 0.35;
-    const PAPER_LONG_PRESS = 380;
-    let paperZoom = 1;
-    let paperX = 0;
-    let paperY = 0;
-
-    function applyPaperTransform() {
-      const paper = document.getElementById("paper");
-      if (!paper) return;
-      if (paperZoom === 1 && paperX === 0 && paperY === 0) {
-        paper.style.transform = "";
-      } else {
-        paper.style.transform = `translate(${paperX}px, ${paperY}px) scale(${paperZoom})`;
-      }
-    }
-
-    function togglePaper() {
-      const paper = document.getElementById("paper");
-      if (!paper) return;
-      // 纸和纸团都在同一个容器里，容器尺寸不变，所以只是切换类名
-      paper.classList.toggle("is-collapsed");
-    }
-
-    function initPaper() {
-      const paper = document.getElementById("paper");
-      if (!paper) return;
-
-      // 四角：等比缩放
-      paper.querySelectorAll("[data-paper]").forEach((handle) => {
-        handle.addEventListener("pointerdown", (e) => {
-          if (e.button !== 0) return;
-          e.preventDefault();
-          e.stopPropagation();
-
-          const rect = paper.getBoundingClientRect();
-          const centerX = rect.left + rect.width / 2;
-          const centerY = rect.top + rect.height / 2;
-          const startDistance = Math.max(1, Math.hypot(e.clientX - centerX, e.clientY - centerY));
-          const startZoom = paperZoom;
-
-          if (handle.setPointerCapture) {
-            try { handle.setPointerCapture(e.pointerId); } catch (err) {}
-          }
-
-          const onMove = (ev) => {
-            const distance = Math.hypot(ev.clientX - centerX, ev.clientY - centerY);
-            paperZoom = Math.max(PAPER_MIN_ZOOM, startZoom * (distance / startDistance));
-            applyPaperTransform();
-          };
-          const onUp = () => {
-            handle.removeEventListener("pointermove", onMove);
-            handle.removeEventListener("pointerup", onUp);
-            handle.removeEventListener("pointercancel", onUp);
-          };
-
-          handle.addEventListener("pointermove", onMove);
-          handle.addEventListener("pointerup", onUp);
-          handle.addEventListener("pointercancel", onUp);
-        });
-      });
-
-      // 纸和纸团：长按拖动；没拖动就是单击 → 揉成纸团 / 展开
-      let pressTimer = 0;
-      let pressing = false;
-      let dragging = false;
-      let startX = 0;
-      let startY = 0;
-      let startPanX = 0;
-      let startPanY = 0;
-
-      const stopPress = () => {
-        clearTimeout(pressTimer);
-        pressTimer = 0;
-        pressing = false;
-        if (dragging) {
-          dragging = false;
-          paper.classList.remove("is-dragging");
-          return true;
-        }
-        return false;
-      };
-
-      const onPressStart = (e) => {
-        if (e.button !== 0) return;
-        if (e.target.closest(".paper-handle")) return;
-        e.preventDefault();
-        pressing = true;
-        dragging = false;
-        startX = e.clientX;
-        startY = e.clientY;
-        startPanX = paperX;
-        startPanY = paperY;
-        const target = e.currentTarget;
-        if (target.setPointerCapture) {
-          try { target.setPointerCapture(e.pointerId); } catch (err) {}
-        }
-        clearTimeout(pressTimer);
-        pressTimer = setTimeout(() => {
-          if (!pressing) return;
-          dragging = true;
-          paper.classList.add("is-dragging");
-        }, PAPER_LONG_PRESS);
-      };
-
-      const onPressMove = (e) => {
-        if (!pressing) return;
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-        if (!dragging) {
-          if (Math.hypot(dx, dy) <= 6) return;
-          // 还没长按就动了：直接进入拖动，不用等
-          clearTimeout(pressTimer);
-          pressTimer = 0;
-          dragging = true;
-          paper.classList.add("is-dragging");
-        }
-        paperX = startPanX + dx;
-        paperY = startPanY + dy;
-        applyPaperTransform();
-      };
-
-      const finishPress = () => {
-        if (!pressing) return;
-        const wasDragging = stopPress();
-        if (!wasDragging) togglePaper();
-      };
-
-      [".paper-sheet", ".paper-ball"].forEach((sel) => {
-        const el = paper.querySelector(sel);
-        if (!el) return;
-        el.addEventListener("pointerdown", onPressStart);
-        el.addEventListener("pointermove", onPressMove);
-        el.addEventListener("pointerup", finishPress);
-        el.addEventListener("pointercancel", () => { stopPress(); });
-      });
-    }
-
-    window.addEventListener("DOMContentLoaded", () => {
-      init3DThicknessLayers();
-      initWheelSvg();
-      initWheelDrag();
-      initViewControls();
-      initDockControls();
-      initPaper();
-      initRollPiano();
-      document.getElementById("btn-reset").addEventListener("click", resetLayout);
-
-      // 默认停在 Key of G（与实体产品图示一致），静默进入
-      selectKeyByIndex(1, false);
-
-      // 点任何一个窗口，听这个级数的三和弦
-      document.querySelectorAll(".chord-hotspot").forEach((spot) => {
-        spot.addEventListener("click", (e) => {
-          e.stopPropagation();
-          state.selectedDegree = Number(spot.dataset.degree);
-          playChordTriad(state.keyIndex, state.selectedDegree);
-        });
-      });
-
-      // 键盘：← → 切调；数字 1-7 直接听该级和弦
-      window.addEventListener("keydown", (e) => {
-        if (e.key === "ArrowLeft") {
-          e.preventDefault();
-          stepWheel(-1);
-        } else if (e.key === "ArrowRight") {
-          e.preventDefault();
-          stepWheel(1);
-        } else if (e.key >= "1" && e.key <= "7") {
-          state.selectedDegree = Number(e.key);
-          playChordTriad(state.keyIndex, state.selectedDegree);
-        }
-      });
-
-      // 外壳配色
-      document.querySelectorAll(".color-btn").forEach((btn) => {
-        btn.addEventListener("click", () => applyColorTheme(btn.dataset.color));
-      });
-
-      // 磨砂透视
-      const xrayBtn = document.getElementById("btn-xray");
-      xrayBtn.addEventListener("click", () => {
-        state.xrayTranslucent = !state.xrayTranslucent;
-        document.getElementById("front-plate-fill").setAttribute("opacity", state.xrayTranslucent ? "0.91" : "1");
-        document.getElementById("back-plate-fill").setAttribute("opacity", state.xrayTranslucent ? "0.92" : "1");
-        document.getElementById("ghost-neighbors").setAttribute("opacity", state.xrayTranslucent ? "0.38" : "0");
-      });
-
-      // 正反面翻转
-      const flipBtn = document.getElementById("btn-flip");
-      document.getElementById("device-card").addEventListener("transitionend", (e) => {
-        if (e.target === e.currentTarget && e.propertyName === "transform") {
-          e.currentTarget.parentElement.classList.add("is-resting");
-        }
-      });
-      flipBtn.addEventListener("click", () => {
-        state.isFlipped = !state.isFlipped;
-        const card = document.getElementById("device-card");
-        const scene = card.parentElement;
-        scene.classList.remove("is-resting"); // 翻转期间恢复真 3D
-        void card.offsetWidth;
-        card.classList.toggle("is-flipped", state.isFlipped);
-      });
-
-      // 声音开关
-      const audioBtn = document.getElementById("btn-audio");
-      audioBtn.addEventListener("click", () => {
-        state.audioEnabled = !state.audioEnabled;
-        audioBtn.classList.toggle("is-off", !state.audioEnabled);
-      });
-    });
-  </script>
-</body>
-</html>
+<header class="top"><a class="brand" href="#home">雷霆冲刺</a><nav class="nav"><a href="#home">HOME</a><a href="#about">ABOUT</a><a href="#letter">LETTER ↗</a></nav><span>ON AIR&nbsp; · &nbsp;01</span></header>
+<main>
+<section class="hero" id="home"><div class="hero-copy"><div class="eyebrow">A LETTERS-ONLY RADIO / 001</div><h1>雷霆<br>冲刺</h1><div class="subtitle">TONIGHT, WE LISTEN.</div><p class="hero-note">在城市安静下来的时候，<br>把还没说出口的话寄到这里。<br>我们会在节目里，轻轻读给夜晚听。</p></div><div class="hero-art" aria-label="月亮与夜空的抽象插画"><div class="moon"></div><div class="orbit"></div><div class="horizon"></div><span class="vertical">SOUND OF THE NIGHT</span><span class="art-caption">LIGHTING RUSH - OTOMAD RADIO</span></div></section>
+<section class="issue" id="issue"><div><div class="eyebrow">CURRENT PROGRAM / 2026</div><h2>雷霆<br>冲刺</h2><div class="meta"><span>征集进行中</span><span>每周五　23:00</span></div></div><div class="issue-copy"><p>本系列栏目，是继「雨亭漫行」后的</p><p>民办野狗系列电台节目</p><p>本栏目在 bilibili 平台，搜索栏目名就可搜寻到</p><p>因为我想不可能会有第二个人能想到这种雷霆名字了</p></div></section>
+<section id="about"><div class="section-head"><span class="label">ABOUT THE PROGRAM</span><span class="micro">02 / 03</span></div><div class="about-grid"><h2 class="about-title">让声音<br>有一个<br>抵达的地方。</h2><div class="about-body"><p>夜航信箱是一档收集听众来信的网络电台。每一期，我们围绕一个主题，留出一段安静的时间，读信，也听信背后的故事。</p><p>你可以留下昵称，也可以选择匿名。邮箱仅用于必要时联系，不会在节目中公开。</p><p>不必写得完整。一个片段、一句问候，或没有寄出的告别，都可以成为来信。</p><div class="signature">A SMALL RADIO FOR THE QUIET HOURS<br>EST. 2026</div></div></div></section>
+<section class="letter-wrap" id="letter"><div class="letter-head"><span class="label">SEND A LETTER</span></div><div class="letter-layout"><div class="letter-intro"><h2>来信<br>联络</h2><p>当你准备好后即可点击投递<br>我们会在下期栏目播出时采用</p><div class="stamp">NIGHT<br>POST<br>✳</div></div><form id="letterForm" action="https://formspree.io/f/xdeakezq" method="POST"><div class="field"><label for="name">昵称 *</label><input id="name" name="name"  required></div><div class="field"><label for="email">邮箱（选填）</label><input id="email" name="email" type="email" ><small>不会在节目或页面公开。</small></div><div class="field"><label for="subject">主题 *</label><input id="subject" name="subject"  required></div><div class="field"><label for="message">来信内容 *</label><textarea id="message" name="message"  required></textarea></div><label class="checkline"><input type="checkbox" name="anonymous">希望以匿名方式播出</label><button class="submit" type="submit"><span>送出</span><span></span></button><div id="success" role="status"><span class="eyebrow">LETTER RECEIVED</span><br>我们已接收到了你的邮件</div><div id="formError" role="alert" style="display:none;color:#9b3d35;font-size:12px;line-height:1.8;margin-top:18px"></div></form></div></section>
+</main><footer class="foot"><span>雷霆冲刺　/　LIGHTING RUSH</span><span>TAKE YOUR TIME.</span></footer>
+<script>
+const letterForm=document.getElementById('letterForm');
+letterForm.action='https://formspree.io/f/xdeakezq';
+letterForm.method='POST';
+letterForm.addEventListener('submit',async function(e){
+ e.preventDefault();
+ if(!this.reportValidity())return;
+ const button=this.querySelector('.submit');
+ const buttonText=button.querySelector('span:first-child');
+ const status=document.getElementById('success');
+ const error=document.getElementById('formError');
+ const data=new FormData(this);
+ data.set('_subject','雷霆冲刺来信｜'+(data.get('subject')||'新来信'));
+ data.set('anonymous',this.elements.anonymous.checked?'是':'否');
+ if(data.get('email'))data.set('_replyto',data.get('email'));
+ button.disabled=true;buttonText.textContent='投递中…';error.style.display='none';
+ try{
+   const response=await fetch(this.action,{method:'POST',body:data,headers:{'Accept':'application/json'}});
+   if(!response.ok)throw new Error('提交失败');
+   this.querySelectorAll('.field,.checkline,.submit').forEach(el=>el.style.display='none');
+   status.style.display='block';
+ }catch(err){
+   error.textContent='这次没有投递成功，请检查网络后重试。你填写的内容仍保留在表单中。';
+   error.style.display='block';button.disabled=false;buttonText.textContent='送出';
+ }
+});
+</script>
+</body></html>
+<style>
+/* Reference-led refinement: quiet white canvas, compact editorial columns */
+:root{--paper:#fff;--ink:#282825;--muted:#92928e;--line:#e6e6e2}
+.top{height:70px;border:0;padding:0 5.1vw;justify-content:flex-end;gap:clamp(35px,12vw,245px)}
+.brand{margin-right:auto;font-size:10px}
+.nav{gap:30px;font-size:9px;letter-spacing:.12em;color:#555}
+.top>span{display:none}
+main{max-width:1240px;padding:0 5.1vw}
+.hero{min-height:735px;grid-template-columns:1fr 1fr;padding:80px 8% 120px;align-items:start}
+.hero-copy{grid-column:2;grid-row:1;padding:26px 0 0 4%}
+.hero h1{font-size:48px;line-height:1.65;letter-spacing:.2em;margin:22px 0 3px}
+.eyebrow,.subtitle,.label,.micro{font-size:9px}
+.hero-note{font-size:11px;margin-top:35px;width:245px;line-height:2.15;color:#777}
+.hero-art{grid-column:1;grid-row:1;height:370px;margin:24px 0 0 10%;background:#171716}
+.moon{width:34%;aspect-ratio:1;border-radius:0;background:#f8f8f5;right:-1px;top:0;box-shadow:none}
+.orbit,.horizon{display:none}
+.art-caption{color:#eee;font-size:8px;bottom:13px;left:14px}
+.vertical{color:#c9c9c4;right:12px;top:13px;font-size:8px}
+.issue{grid-template-columns:.75fr 1fr;gap:12%;padding:54px 15% 95px}
+.issue h2{font-size:22px}
+.issue-copy{font-size:12px;line-height:2.25}
+.about-grid{grid-template-columns:.85fr 1fr;gap:13%;padding:40px 15% 150px}
+.about-title{font-size:42px;line-height:1.8}
+.about-body{font-size:12px;padding-top:38px}
+.section-head,.letter-wrap{margin-left:8%;margin-right:8%}
+.section-head{padding-top:20px}
+.letter-wrap{padding-bottom:120px}
+.letter-layout{grid-template-columns:.8fr 1.1fr;gap:13%;padding:0 14%}
+.letter-intro h2{font-size:32px;line-height:1.7}
+.letter-intro p{font-size:12px}
+.field label{font-size:9px}
+.field input,.field textarea{font-size:13px;border-bottom-color:#d0d0cb}
+.field textarea{min-height:130px}
+.submit{background:#999;border-color:#999;color:white;justify-content:center;text-align:center;min-width:100%;padding:12px}
+.submit:hover{background:#555;color:white}
+.foot{border:0;justify-content:center;padding:30px 5vw 40px;font-size:8px}
+.foot span:last-child{display:none}
+@media(max-width:700px){
+.top{height:58px;gap:0}.brand{font-size:10px}.nav{gap:17px}.nav a:nth-child(2){display:block}
+main{padding:0 6vw}
+.hero{min-height:auto;grid-template-columns:1fr;padding:52px 3% 72px;gap:32px}
+.hero-art{grid-column:1;grid-row:2;margin:0 13% 0 0;height:290px}
+.hero-copy{grid-column:1;grid-row:1;padding:0 0 0 12%}
+.hero h1{font-size:43px}
+.hero-note{margin-top:25px}
+.issue{grid-template-columns:1fr;gap:23px;padding:40px 4% 65px}
+.about-grid{grid-template-columns:1fr;gap:0;padding:25px 4% 80px}
+.about-title{font-size:39px}
+.about-body{padding-top:18px}
+.section-head,.letter-wrap{margin-left:0;margin-right:0}
+.letter-layout{grid-template-columns:1fr;gap:33px;padding:0 4%}
+.letter-intro h2{font-size:31px}
+.stamp{display:none}
+}
+</style>
+<style>
+/* Full-screen, click-to-switch edition */
+html,body{height:100%;overflow:hidden}
+body{background:#f5f4f0}
+.top{position:fixed;z-index:20;inset:0 0 auto;height:64px;padding:0 4vw;justify-content:flex-end;gap:clamp(30px,10vw,190px);color:#30302d;transition:color .35s}
+.brand{margin-right:auto;font-size:11px;letter-spacing:.18em}
+.top>span{display:none}
+.nav{gap:34px}
+.nav a{cursor:pointer}
+main{max-width:none;height:100dvh;padding:0}
+.hero,.issue,.about-grid,.letter-wrap{position:absolute;inset:0;margin:0;height:100dvh;width:100%;max-width:none;transition:transform .72s cubic-bezier(.76,0,.24,1),opacity .5s;overflow:auto}
+.hero{display:block;min-height:0;padding:0;background:#f4f3ef;transform:translateX(0);opacity:1;overflow:hidden}
+.hero-art{position:absolute;inset:0 auto 0 0;width:50%;height:auto;margin:0;background:#171716;transition:transform .72s cubic-bezier(.76,0,.24,1)}
+.moon{width:25%;aspect-ratio:1;right:0;top:12%;background:#f8f8f5}
+.orbit,.horizon,.vertical{display:none}
+.art-caption{left:7%;bottom:8%;color:#d9d9d4;font-size:10px;letter-spacing:.16em}
+.hero-copy{position:absolute;inset:0 0 0 50%;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding:8% 0 8% 11%;transition:transform .72s cubic-bezier(.76,0,.24,1)}
+.hero-copy .eyebrow,.hero-copy .subtitle,.hero-note{display:none}
+.hero h1{font-size:clamp(62px,9vw,128px);line-height:1.45;letter-spacing:.22em;margin:0;font-weight:300}
+.hero h1:after{content:"";display:block}
+.top.on-dark{color:#f1f0eb}
+.top.on-dark .nav{color:#e4e3de}
+.issue{inset:0;background:#fff;display:grid;grid-template-columns:1fr 1fr;align-items:center;padding:12vw 13vw 8vw;opacity:0;transform:translateX(100%);overflow:hidden}
+.issue>div:first-child{padding-left:4%}
+.issue .eyebrow,.issue .meta{display:none}
+.issue h2{font-size:clamp(54px,8vw,112px);font-weight:300;letter-spacing:.18em;line-height:1.55;margin:0}
+.issue-copy{font-size:14px;line-height:2.2;color:#777;max-width:300px;margin-left:16%}
+.section-head{display:none}
+.letter-wrap{background:#f4f3ef;padding:0;opacity:0;transform:translateX(100%);overflow:auto}
+.letter-head{position:absolute;top:90px;left:10%;right:10%;margin:0}
+.letter-layout{height:100%;display:grid;grid-template-columns:.75fr 1.25fr;gap:9%;align-items:center;padding:120px 15% 60px}
+.letter-intro h2{font-size:clamp(38px,5.4vw,72px);font-weight:300;letter-spacing:.12em;line-height:1.5;margin:0 0 24px}
+.letter-intro p{font-size:14px;line-height:2.2;color:#777;max-width:260px;white-space:pre-line}
+.stamp{display:none}
+.field label,.field small{display:none!important}
+.field{margin-bottom:28px}
+.field input,.field textarea{font-size:14px;border-bottom:1px solid #bbb;background:transparent;padding:12px 0}
+.field textarea{min-height:170px}
+.checkline{font-size:12px;margin:10px 0 35px}
+.submit{background:#999;border:0;color:#fff;justify-content:center;min-width:100%;padding:14px}
+.submit span:last-child{display:none}
+.submit:hover{background:#555;color:#fff}
+#success{font-size:14px}
+body[data-page="home"] .hero{transform:translateX(0);opacity:1;z-index:3}
+body[data-page="home"] .issue{transform:translateX(100%);opacity:0;z-index:1}
+body[data-page="home"] .letter-wrap{transform:translateX(100%);opacity:0;z-index:1}
+body[data-page="about"] .hero{transform:translateX(-100%);opacity:1;z-index:2}
+body[data-page="about"] .hero-art{transform:translateX(-100%)}
+body[data-page="about"] .hero-copy{transform:translateX(-100%)}
+body[data-page="about"] .issue{transform:translateX(0);opacity:1;z-index:3}
+body[data-page="about"] .letter-wrap{transform:translateX(100%);opacity:0;z-index:1}
+body[data-page="letter"] .hero{transform:translateX(-100%);opacity:1;z-index:1}
+body[data-page="letter"] .hero-art{transform:translateX(-100%)}
+body[data-page="letter"] .hero-copy{transform:translateX(-100%)}
+body[data-page="letter"] .issue{transform:translateX(-100%);opacity:1;z-index:2}
+body[data-page="letter"] .letter-wrap{transform:translateX(0);opacity:1;z-index:3}
+.foot{display:none}
+@media(max-width:700px){
+.top{height:58px;padding:0 6vw;gap:0}.nav{gap:19px}
+.hero-art{inset:0 0 auto;width:100%;height:45%;}.moon{width:23%;top:22%}
+.art-caption{left:6%;bottom:10%}
+.hero-copy{inset:45% 0 0;justify-content:center;padding:0 10%}
+.hero h1{font-size:clamp(50px,14vw,82px)}
+.issue{grid-template-columns:1fr;padding:23vh 10vw 10vh;align-content:center;gap:24px}
+.issue>div:first-child{padding-left:0}
+.issue h2{font-size:clamp(44px,12vw,76px)}
+.issue-copy{margin:0;font-size:13px}
+.letter-head{top:80px;left:7%;right:7%}
+.letter-layout{grid-template-columns:1fr;align-content:start;gap:22px;padding:130px 8% 42px}
+.letter-intro h2{font-size:39px;margin-bottom:10px}
+.letter-intro p{font-size:12px;margin:0}
+.field{margin-bottom:17px}
+.field textarea{min-height:110px}
+.checkline{margin:3px 0 20px}
+}
+</style>
+<script>
+(()=> {
+ const names=["home","about","letter"];
+ function show(page){
+   if(!names.includes(page)) page="home";
+   document.body.dataset.page=page;
+   document.querySelector(".top").classList.toggle("on-dark",page==="home");
+   document.querySelectorAll(".nav a").forEach(a=>a.classList.toggle("active",a.dataset.page===page));
+   history.replaceState(null,"","#"+page);
+ }
+ document.addEventListener("DOMContentLoaded",()=>{
+   document.querySelectorAll(".nav a").forEach(a=>{
+     const label=a.textContent.trim().toLowerCase();
+     const page=label.startsWith("home")?"home":label.startsWith("about")?"about":"letter";
+     a.dataset.page=page;a.href="#"+page;
+     a.addEventListener("click",e=>{e.preventDefault();show(page)});
+   });
+   show(location.hash.slice(1)||"home");
+   addEventListener("hashchange",()=>show(location.hash.slice(1)));
+ });
+})();
+</script>
+
+<style>
+#about{display:none!important}
+</style>
+
+<style>
+/* Final layout adjustments from browser comments */
+.hero,.issue,.letter-wrap{background:#fff}
+.hero{background:#fff!important}
+.hero-art{overflow:visible}
+.moon{width:30%;right:-30%;top:12%}
+.art-caption{left:3%;bottom:4%}
+.hero-copy{align-items:flex-start}
+.hero h1{font-size:clamp(62px,9vw,128px);line-height:1.45}
+.issue{background:#fff}
+.issue h2{visibility:hidden}
+.issue-copy{position:absolute;left:61%;top:50%;transform:translateY(-50%);margin:0;max-width:300px}
+.letter-wrap{background:#fff}
+.letter-head .micro{display:none}
+.field label{display:block!important}
+.field small{display:none!important}
+body[data-page="about"] .hero{transform:translateX(0);background:#fff;z-index:4;pointer-events:none}
+body[data-page="about"] .hero-art{transform:translateX(-100%)}
+body[data-page="about"] .hero-copy{transform:translateX(-100%)}
+body[data-page="letter"] .hero{transform:translateX(0);background:#fff;z-index:1;pointer-events:none}
+body[data-page="letter"] .hero-art{transform:translateX(-100%)}
+body[data-page="letter"] .hero-copy{transform:translateX(-100%)}
+body[data-page="about"] .issue{z-index:3}
+body[data-page="letter"] .issue{z-index:2}
+body[data-page="letter"] .letter-wrap{z-index:3}
+@media(max-width:700px){
+.moon{right:-24%;width:31%;top:18%}
+.art-caption{left:3%;bottom:4%}
+.hero h1{font-size:clamp(50px,14vw,82px)}
+.issue-copy{left:10%;right:10%;top:66%;transform:none;max-width:none}
+}
+</style>
+<style>
+body[data-page="about"] .hero,body[data-page="letter"] .hero{background:transparent!important}
+</style>
+<style>
+/* Keep the cover tile attached to the moving dark panel */
+body{background:#fff!important}
+.hero{background:#fff!important}
+.hero-art{left:0;transform:translateX(4vw);overflow:hidden}
+.moon{right:0;top:12%;width:25%;transform:none}
+.art-caption{left:3%;bottom:4%}
+body[data-page="home"] .hero-art{transform:translateX(4vw)}
+body[data-page="about"] .hero-art{transform:translateX(calc(-100% - 4vw))}
+body[data-page="letter"] .hero-art{transform:translateX(calc(-100% - 4vw))}
+.hero-copy{z-index:5;background:transparent!important}
+body[data-page="home"] .hero-copy{transform:translateX(0)}
+body[data-page="about"] .hero-copy{transform:translateX(-100%)}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 100vw))}
+body[data-page="about"] .hero{z-index:4;background:transparent!important;pointer-events:none}
+body[data-page="letter"] .hero{z-index:4;background:transparent!important;pointer-events:none}
+body[data-page="about"] .issue{z-index:3}
+body[data-page="letter"] .issue{z-index:2}
+body[data-page="letter"] .letter-wrap{z-index:3}
+@media(max-width:700px){
+.hero-art{transform:translateX(0)}
+.moon{right:0;width:25%}
+body[data-page="home"] .hero-art{transform:translateX(0)}
+body[data-page="about"] .hero-art{transform:translateX(-100%)}
+body[data-page="letter"] .hero-art{transform:translateX(-100%)}
+body[data-page="about"] .hero-copy{transform:translateX(-100%)}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 100vw))}
+}
+</style>
+<style>
+/* Fill the left edge while extending the cover toward the title */
+.hero{background:transparent!important;z-index:4}
+.hero-art{left:0;width:55%;transform:none!important;overflow:hidden;border:0}
+.moon{right:0;width:25%;border:0;outline:0;box-shadow:none}
+.hero-copy{left:55%;padding-left:11%;background:transparent!important}
+body[data-page="home"] .hero-art{transform:none!important}
+body[data-page="about"] .hero-art,body[data-page="letter"] .hero-art{transform:translateX(-100%)!important}
+body[data-page="home"] .hero-copy{transform:translateX(0)!important}
+body[data-page="about"] .hero-copy{transform:translateX(-100%)!important}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 100vw))!important}
+body[data-page="home"] .hero{z-index:4}
+body[data-page="about"] .hero,body[data-page="letter"] .hero{z-index:4;background:transparent!important}
+body[data-page="home"] .issue{z-index:1}
+body[data-page="about"] .issue{z-index:3}
+body[data-page="letter"] .issue{z-index:2}
+body[data-page="home"] .letter-wrap{z-index:1}
+body[data-page="about"] .letter-wrap{z-index:1}
+body[data-page="letter"] .letter-wrap{z-index:3}
+@media(max-width:700px){
+.hero-art{width:100%;left:0;transform:none!important}
+.hero-copy{left:0;top:45%;padding:0 10%;height:55%}
+body[data-page="about"] .hero-art,body[data-page="letter"] .hero-art{transform:translateX(-100%)!important}
+body[data-page="about"] .hero-copy{transform:translateX(-100%)!important}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 100vw))!important}
+}
+</style>
+<style>
+body[data-page="about"] .hero-copy{transform:translateX(calc(-100% - 9vw))!important}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 109vw))!important}
+@media(max-width:700px){
+body[data-page="about"] .hero-copy{transform:translateX(-100%)!important}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 100vw))!important}
+}
+</style>
+
+<style>
+/* Extend the cover to the marked boundary; keep its left edge anchored */
+.hero-art{left:0;width:68.5%;transform:none!important;z-index:8;overflow:hidden;border:0}
+.moon{right:0;width:25%;border:0;outline:0;box-shadow:none}
+.hero-copy{left:68.5%;padding-left:11.7%;z-index:5}
+body[data-page="home"] .hero-art{transform:none!important}
+body[data-page="about"] .hero-art,body[data-page="letter"] .hero-art{transform:translateX(-100%)!important}
+body[data-page="home"] .hero-copy{transform:translateX(0)!important}
+body[data-page="about"] .hero-copy{transform:translateX(calc(-100% - 36vw))!important}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 136vw))!important}
+body[data-page="home"] .hero{z-index:4}
+body[data-page="about"] .hero,body[data-page="letter"] .hero{z-index:4;background:transparent!important;pointer-events:none}
+@media(max-width:700px){
+.hero-art{left:0;width:100%;transform:none!important}
+.hero-copy{left:0;top:45%;padding:0 10%;height:55%}
+body[data-page="about"] .hero-copy{transform:translateX(-100%)!important}
+body[data-page="letter"] .hero-copy{transform:translateX(calc(-100% - 100vw))!important}
+}
+</style>
+
+
+
+
+
+<style>
+.top.on-dark .nav{color:#555}
+.top.on-dark .nav a{color:inherit}
+.top.on-dark .nav a:hover{color:#111}
+</style> /// 我说实话这一条是为了糊弄鬼才加的注释，只是为了让我的表有一点绿色
